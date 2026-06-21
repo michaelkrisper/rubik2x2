@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-"""Rubik Cube 2x2 Solver. 
+"""Rubik Cube 2x2 Solver.
 
 Input format:
-  Colors: 
+  Colors:
     red = r
     white = w
     blue = b
@@ -16,7 +16,7 @@ Arguments:
       tttt ffff   bbbb    aaaa  llll  rrrr
       e.G. rubik.py rgrggpyybbppwwbrwwgpyyrb
       or:  rubik.py rrwrbwwwpppyygyybrbbgggp  (cube in a cube -- very complex to solve)
-    
+
     Order of surfaces on one side:
       -------
       |1. 2.|
@@ -33,19 +33,19 @@ Available Commands in the Terminal:
   l/L     move LEFT down / LEFT up
   f/F     move FRONT clockwise / FRONT anticlockwise
   t/T     move TOP LEFT / TOP RIGHT
-  
+
   The move-commands can be chained: e.G. lFtL
-  
+
   http://www.mathematische-basteleien.de/miniwuerfel.htm
-  http://www.jaapsch.net/puzzles/javascript/cube2j.htm  
-  
-  
+  http://www.jaapsch.net/puzzles/javascript/cube2j.htm
+
+
   Very complex moves:
   ttlfTlFlFTLL cube in a cube
   lfllffTFttlt
   lftfLfLfftLT
   lltfLfLtFLTT
-  
+
   TODO:
   * Move everything into a class for better reuse
   * document (doc-strings)
@@ -64,12 +64,12 @@ except ImportError:
 # CONSTANTS ###################################################################
 LEVEL_OF_PRECALCULATION = 4
 
-R = "\x1b[1;31;41m R \x1b[0m"
-W = "\x1b[1;37;47m W \x1b[0m"
-B = "\x1b[1;34;44m B \x1b[0m"
-Y = "\x1b[1;33;43m Y \x1b[0m"
-P = "\x1b[1;35;45m P \x1b[0m"
-G = "\x1b[1;32;42m G \x1b[0m"
+R = 0
+W = 1
+B = 2
+Y = 3
+P = 4
+G = 5
 
 TOP = 0
 FRONT = 1
@@ -77,14 +77,12 @@ BOTTOM = 2
 BACK = 3
 LEFT = 4
 RIGHT = 5
-# CONSTANTS ###################################################################
-
 
 # GLOBALS #####################################################################
 preSolutionCubes = {}
 # GLOBALS #####################################################################
 
-def defaultCube(): 
+def defaultCube():
     return [[[Y, Y], [Y, Y]],
             [[R, R], [R, R]],
             [[W, W], [W, W]],
@@ -93,42 +91,66 @@ def defaultCube():
             [[G, G], [G, G]]]
 
 def copyCube(cube):
-    return [[row[:] for row in side] for side in cube]
+    #return [[row[:] for row in side] for side in cube]
+    return [[[cube[0][0][0], cube[0][0][1]], [cube[0][1][0], cube[0][1][1]]],
+            [[cube[1][0][0], cube[1][0][1]], [cube[1][1][0], cube[1][1][1]]],
+            [[cube[2][0][0], cube[2][0][1]], [cube[2][1][0], cube[2][1][1]]],
+            [[cube[3][0][0], cube[3][0][1]], [cube[3][1][0], cube[3][1][1]]],
+            [[cube[4][0][0], cube[4][0][1]], [cube[4][1][0], cube[4][1][1]]],
+            [[cube[5][0][0], cube[5][0][1]], [cube[5][1][0], cube[5][1][1]]]]
 
 def printcube(cube):
+    c = [
+        "\x1b[1;31;41m R \x1b[0m",
+        "\x1b[1;37;47m W \x1b[0m",
+        "\x1b[1;34;44m B \x1b[0m",
+        "\x1b[1;33;43m Y \x1b[0m",
+        "\x1b[1;35;45m P \x1b[0m",
+        "\x1b[1;32;42m G \x1b[0m"
+    ]
+
     print "        ╔═══╤═══╗"
-    print "        ║%s│%s║" % (cube[TOP][0][0], cube[TOP][0][1])
+    print "        ║%s│%s║" % (c[cube[TOP][0][0]], c[cube[TOP][0][1]])
     print "        ╟───┼───╢"
-    print "        ║%s│%s║" % (cube[TOP][1][0], cube[TOP][1][1])
+    print "        ║%s│%s║" % (c[cube[TOP][1][0]], c[cube[TOP][1][1]])
     print "╔═══╤═══╬═══╪═══╬═══╤═══╦═══╤═══╗"
-    print "║%s│%s║%s│%s║%s│%s║%s│%s║" % (cube[LEFT][0][0], cube[LEFT][0][1], cube[FRONT][0][0], cube[FRONT][0][1], cube[RIGHT][0][0], cube[RIGHT][0][1], cube[BACK][1][1], cube[BACK][1][0])
+    print "║%s│%s║%s│%s║%s│%s║%s│%s║" % (c[cube[LEFT][0][0]], c[cube[LEFT][0][1]], c[cube[FRONT][0][0]], c[cube[FRONT][0][1]], c[cube[RIGHT][0][0]], c[cube[RIGHT][0][1]], c[cube[BACK][1][1]], c[cube[BACK][1][0]])
     print "╫───┼───╫───┼───╫───┼───╫───┼───╢"
-    print "║%s│%s║%s│%s║%s│%s║%s│%s║" % (cube[LEFT][1][0], cube[LEFT][1][1], cube[FRONT][1][0], cube[FRONT][1][1], cube[RIGHT][1][0], cube[RIGHT][1][1], cube[BACK][0][1], cube[BACK][0][0])
+    print "║%s│%s║%s│%s║%s│%s║%s│%s║" % (c[cube[LEFT][1][0]], c[cube[LEFT][1][1]], c[cube[FRONT][1][0]], c[cube[FRONT][1][1]], c[cube[RIGHT][1][0]], c[cube[RIGHT][1][1]], c[cube[BACK][0][1]], c[cube[BACK][0][0]])
     print "╚═══╧═══╬═══╪═══╬═══╧═══╩═══╧═══╝"
-    print "        ║%s│%s║" % (cube[BOTTOM][0][0], cube[BOTTOM][0][1])
+    print "        ║%s│%s║" % (c[cube[BOTTOM][0][0]], c[cube[BOTTOM][0][1]])
     print "        ╟───┼───╢"
-    print "        ║%s│%s║" % (cube[BOTTOM][1][0], cube[BOTTOM][1][1])
+    print "        ║%s│%s║" % (c[cube[BOTTOM][1][0]], c[cube[BOTTOM][1][1]])
     print "        ╚═══╧═══╝"
-    
-    
+
+
 def calculateDefaultCubesOriented(cubes):
     c = defaultCube()
     ctb = topLeft(bottomLeft(copyCube(c)))
     ctbtb = topLeft(bottomLeft(copyCube(ctb)))
     ctbtbtb = topLeft(bottomLeft(copyCube(ctbtb)))
-    
+
     cubes[get_key(c)] = (c, "")
     cubes[get_key(ctb)] = (ctb, "")
     cubes[get_key(ctbtb)] = (ctbtb, "")
     cubes[get_key(ctbtbtb)] = (ctbtbtb, "")
 
     for cube in [c, ctb, ctbtb, ctbtbtb]:
-        for method1, method2 in [(rightDown, leftDown), (frontClockwise, backClockwise)]:
-            nextCube = cube
-            for _ in range(3):
-                nextCube = method1(method2(copyCube(nextCube)))
-                cubes[get_key(nextCube)] = (nextCube, "")
+        nextCube = cube
+        nextCube = rightDown(leftDown(copyCube(nextCube)))
+        cubes[get_key(nextCube)] = (nextCube, "")
+        nextCube = rightDown(leftDown(copyCube(nextCube)))
+        cubes[get_key(nextCube)] = (nextCube, "")
+        nextCube = rightDown(leftDown(copyCube(nextCube)))
+        cubes[get_key(nextCube)] = (nextCube, "")
 
+        nextCube = cube
+        nextCube = frontClockwise(backClockwise(copyCube(nextCube)))
+        cubes[get_key(nextCube)] = (nextCube, "")
+        nextCube = frontClockwise(backClockwise(copyCube(nextCube)))
+        cubes[get_key(nextCube)] = (nextCube, "")
+        nextCube = frontClockwise(backClockwise(copyCube(nextCube)))
+        cubes[get_key(nextCube)] = (nextCube, "")
 
 def checkSolved(testCube):
     key = get_key(testCube)
@@ -151,7 +173,76 @@ def getAllMoves(currCube, path):
         yield (topRight(copyCube(currCube)), path + "T")
     if (len(path) == 0 or path[-1] != "f") and (len(path) < 3 or path[-3:] != "FFF"):
         yield (frontAntiClockwise(copyCube(currCube)), path + "F")
-    
+
+
+
+def readCube(inputText):
+    inputCube = defaultCube()
+    charPosition = 0
+    for side in (TOP, FRONT, BOTTOM, BACK, LEFT, RIGHT):
+        for row in [0, 1]:
+            for pos in [0, 1]:
+                inputCube[side][row][pos] = eval(inputText[charPosition].upper())
+                charPosition += 1
+    return inputCube
+
+def solve(inputCube):
+    solved, solvePath = checkSolved(inputCube)
+    if solved:
+        if solvePath == "":
+            print "\nThe Cube is already solved. Nothing to do.\n"
+        else:
+            print "\nFound Solution: %s\n" % solvePath
+    else:
+        cubeKeys = set([get_key(inputCube)])
+        newcubes = [(inputCube, "")]
+        solution_found = False
+        try:
+            while not solution_found:
+                cubes, newcubes = newcubes, []
+                # todo calculate in threads e.g. one thread for each cube, or 4 worker threads!
+                # example: put the cubes in a queue and run 4 worker threads which empty the queue
+                # introduce a global variable: solution_found to stop the worker threads.
+                for currCube, path in cubes:
+                    for nextCube, operation in getAllMoves(currCube, path):
+                        key = get_key(nextCube)
+                        if key not in cubeKeys:
+                            solved, solvePath = checkSolved(nextCube)
+                            if solved:
+                                print "\nFound Solution: %s%s\n" % (operation, solvePath)
+                                # todo: stop all thread if solution was found.
+                                solution_found = True
+                                return
+
+                            cubeKeys.add(key)
+                            newcubes.append((nextCube, operation))
+        except KeyboardInterrupt:
+            pass
+
+def random_moves(cube, count):
+    cubeKeys = set([get_key(cube)])
+    randomMoves = 0
+    moves = [leftDown, leftUp, rightDown, rightUp,
+             topLeft, topRight, bottomLeft, bottomRight,
+             frontClockwise, frontAntiClockwise, backClockwise, backAntiClockwise]
+    while randomMoves < count:
+        move = random.choice(moves)
+        move(cube)
+        key = get_key(cube)
+        if key not in cubeKeys:
+            cubeKeys.add(key)
+            randomMoves += 1
+
+    return cube
+
+def get_key(cube):
+    return (cube[0][0][0], cube[0][0][1], cube[0][1][0], cube[0][1][1],
+            cube[1][0][0], cube[1][0][1], cube[1][1][0], cube[1][1][1],
+            cube[2][0][0], cube[2][0][1], cube[2][1][0], cube[2][1][1],
+            cube[3][0][0], cube[3][0][1], cube[3][1][0], cube[3][1][1],
+            cube[4][0][0], cube[4][0][1], cube[4][1][0], cube[4][1][1],
+            cube[5][0][0], cube[5][0][1], cube[5][1][0], cube[5][1][1]).__hash__()
+
 def leftDown(cube):
     (cube[TOP][0][0], cube[TOP][1][0],
     cube[FRONT][0][0], cube[FRONT][1][0],
@@ -272,74 +363,16 @@ def backAntiClockwise(cube):
     backClockwise(cube)
     return cube
 
-def readCube(inputText):
-    inputCube = defaultCube()
-    charPosition = 0
-    for side in (TOP, FRONT, BOTTOM, BACK, LEFT, RIGHT):
-        for row in [0, 1]:
-            for pos in [0, 1]:
-                inputCube[side][row][pos] = eval(inputText[charPosition].upper())
-                charPosition += 1
-    return inputCube
 
-def solve(inputCube):
-    solved, solvePath = checkSolved(inputCube) 
-    if solved:
-        if solvePath == "":
-            print "\nThe Cube is already solved. Nothing to do.\n" 
-        else:
-            print "\nFound Solution: %s\n" % solvePath
-    else:
-        cubeKeys = set([get_key(inputCube)])
-        newcubes = [(inputCube, "")]
-        solution_found = False
-        try:
-            while not solution_found:
-                cubes, newcubes = newcubes, []
-                # todo calculate in threads e.g. one thread for each cube, or 4 worker threads!
-                # example: put the cubes in a queue and run 4 worker threads which empty the queue
-                # introduce a global variable: solution_found to stop the worker threads.
-                for currCube, path in cubes:
-                    for nextCube, operation in getAllMoves(currCube, path):
-                        key = get_key(nextCube)
-                        if key not in cubeKeys:
-                            solved, solvePath = checkSolved(nextCube)
-                            if solved:
-                                print "\nFound Solution: %s%s\n" % (operation, solvePath)
-                                # todo: stop all thread if solution was found.
-                                solution_found = True
-                                return
-                            
-                            cubeKeys.add(key)
-                            newcubes.append((nextCube, operation))
-        except KeyboardInterrupt:
-            pass
-    
-def random_moves(cube, count):
-    cubeKeys = set([get_key(cube)])
-    randomMoves = 0
-    moves = [leftDown, leftUp, rightDown, rightUp,
-             topLeft, topRight, bottomLeft, bottomRight,
-             frontClockwise, frontAntiClockwise, backClockwise, backAntiClockwise]
-    while randomMoves < count:
-        move = random.choice(moves)
-        move(cube)
-        key = get_key(cube)
-        if key not in cubeKeys:
-            cubeKeys.add(key)
-            randomMoves += 1
 
-    return cube
 
-def get_key(cube):
-    return "".join([pos for side in cube for row in side for pos in row])
 
 def preCalcCubes():
     # DefaultCubes: 24 Cubes
     # Level 1: 168 Cubes
     # Level 2: 816 Cubes
     # level 3: 3696 Cubes
-    # Level 4: 16512 Cubes    
+    # Level 4: 16512 Cubes
     calculateDefaultCubesOriented(preSolutionCubes)
     for _ in range(LEVEL_OF_PRECALCULATION):
         for key, (cube, path) in preSolutionCubes.items()[:]:
@@ -351,7 +384,7 @@ def preCalcCubes():
 def main():
     t = threading.Thread(target=preCalcCubes)
     t.start()
-    
+
     print "-- Rubik 2x2 Solver --"
 
     if sys.argv[1:]:
@@ -361,6 +394,7 @@ def main():
     printcube(cube)
     while True:
         cmdText = raw_input("Please enter command: ")
+        #cmdText = "exit"
         if cmdText == "solve":
             t.join()
             solve(cube)
@@ -406,7 +440,7 @@ def main():
                     backClockwise(cube)
                 elif cmdChar == "A":
                     backAntiClockwise(cube)
-                    
+
             printcube(cube)
         else:
             print "Command not known. Possible commands are: solve, print, l, L, t, T, f, F, R, R, B, B, a, A, exit"

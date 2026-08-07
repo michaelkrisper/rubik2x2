@@ -1,8 +1,8 @@
 # pyrubik
 
 The Python implementation of [rubik2x2](../README.md): an optimal 2x2x2 cube
-solver with three interchangeable algorithms. Pure Python 3.14, no required
-dependencies.
+solver with three interchangeable algorithms. Python 3.14; numpy optional but
+recommended, and everything works without it.
 
 ## Install
 
@@ -141,27 +141,31 @@ owns, which is why the tests need no reset hooks.
 
 ## Does threading help?
 
-No — and the measurement is worth keeping. The distance-table build is the only
-part worth parallelising: 22 million edges, level-synchronous, so each level's
-frontier splits cleanly across workers. Races on the shared visited array are
-benign, since two workers reaching the same state write the same value.
+It depends entirely on what the threads are running, and this is the clearest
+demonstration of the GIL's actual shape that the repository has.
 
-Measured on 4 cores, building the full table:
+The distance-table build is the only part worth parallelising: 22 million edges,
+level-synchronous, so each level's frontier splits cleanly across workers. Races
+on the shared visited array are benign — two workers reaching the same state
+write the same value. Same decomposition every time; only the backend differs.
 
-| Interpreter | serial | 4 threads | speedup |
+| Backend | serial | 4 threads | speedup |
 |---|---|---|---|
-| CPython 3.14 (GIL) | 7.45 s | 9.45 s | 0.79× |
-| CPython 3.14t (free-threaded) | 9.38 s | 15.99 s | 0.59× |
+| **numpy** | **984 ms** | **428 ms** | **2.3×** |
+| pure Python, GIL | 7.45 s | 9.45 s | 0.79× |
+| pure Python, free-threaded (3.14t) | 9.38 s | 15.99 s | 0.59× |
 
-Under the GIL this is expected: the inner loop is pure bytecode, so threads take
-turns and only add handover cost. The free-threaded result is the interesting
-one — removing the GIL did not help. That build starts 26% slower single-threaded,
-and the shared `bytearray` that every worker writes into turns into contention
-rather than parallelism. Free-threading pays off for work that is coarse-grained
-and mostly independent; this loop is neither.
+The GIL is not a lock on *threads*, it is a lock on *interpreting bytecode*.
+numpy's ufuncs release it and spend their time in compiled loops, so four of them
+genuinely run at once — 2.3×, the largest parallel speedup of any implementation
+in this repository, ahead of C++ at 1.99× and Rust at 1.86×.
 
-The compiled implementations in this repository do get real speedup from the
-same decomposition, which is the point of comparing them.
+The pure-Python loop never releases it, so its threads only take turns and pay
+handover costs. The free-threaded build is the interesting control: removing the
+GIL made it *worse*. That interpreter is already 26% slower single-threaded, and
+the shared `bytearray` every worker writes into becomes contention rather than
+parallelism. Free-threading rewards coarse-grained, mostly independent work; a
+tight loop writing into one shared array is neither.
 
 ## numpy is the measured configuration
 

@@ -29,13 +29,35 @@ from typing import Self
 from . import coords
 from .cube import Moves, State, UnsolvableError
 
-try:  # optional accelerator; the pure-Python build below is the reference
-    import numpy
-except ImportError:  # pragma: no cover - depends on the environment
-    numpy = None
-
 #: Called with (depth, states found at that depth) once per level.
 type Progress = Callable[[int, int], None]
+
+_NUMPY: object = False  # False: not probed yet; None: probed and absent
+
+
+def _numpy():
+    """The optional accelerator, imported on first use.
+
+    Importing numpy costs ~140 ms -- two thirds of the package's whole import
+    time -- and a plain ``solve`` never touches it. Deferring it keeps
+    ``pyrubik solve`` startup honest; the pure-Python build below is the
+    reference either way.
+    """
+    global _NUMPY
+    if _NUMPY is False:
+        try:
+            import numpy as module
+
+            _NUMPY = module
+        except ImportError:  # pragma: no cover - depends on the environment
+            _NUMPY = None
+    return _NUMPY
+
+
+def __getattr__(name: str):
+    if name == "numpy":  # keep `table.numpy` working for tests and callers
+        return _numpy()
+    raise AttributeError(name)
 
 
 def _build_python(progress: Progress | None) -> bytearray:
@@ -93,6 +115,7 @@ def _build_python(progress: Progress | None) -> bytearray:
 
 def _build_numpy(progress: Progress | None) -> bytearray:
     """The same search, one array operation per level instead of per edge."""
+    numpy = _numpy()
     tables = coords.move_tables()
     width = coords.N_ORIENTATIONS
     permutation = numpy.array([table for _, table, _ in tables], dtype=numpy.int32)
@@ -193,7 +216,7 @@ class DistanceTable:
 
         ``pure`` forces the Python implementation; both produce identical tables.
         """
-        if pure or numpy is None:
+        if pure or _numpy() is None:
             return cls(_build_python(progress), "python")
         return cls(_build_numpy(progress), "numpy")
 

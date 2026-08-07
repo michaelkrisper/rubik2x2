@@ -1,0 +1,66 @@
+name: bench
+
+# Benchmarks all seven implementations on a standard GitHub-hosted runner:
+# public repos get 4 vCPUs (AMD EPYC as of 2026) -- twice the physical cores of
+# the laptop the README numbers come from, and identical hardware for every run.
+#
+# Manual trigger only. Shared VMs jitter; treat these numbers as reproducible
+# hardware-normalized comparisons between languages, not as microbenchmarks.
+# Everything still runs strictly sequentially so nothing competes for cores.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14 time
+          mkdir -p "$HOME/bin"
+          ln -s "$(command -v gcc-14)" "$HOME/bin/gcc"
+          ln -s "$(command -v g++-14)" "$HOME/bin/g++"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with: { go-version: "stable" }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.14" }
+
+      - name: Python venv (the harness runs python via python/.venv)
+        run: python -m venv python/.venv
+
+      - name: Describe the machine
+        run: |
+          {
+            echo "## Benchmark machine"
+            echo '```'
+            lscpu | grep -E "Model name|^CPU\(s\)|Thread|Core|MHz|cache"
+            free -h | head -2
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Measure (sequential, one implementation at a time)
+        run: python3 tools/measure.py
+
+      - name: Report
+        run: |
+          {
+            echo "## Results"
+            python3 tools/report.py
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: bench/results/
+          retention-days: 90

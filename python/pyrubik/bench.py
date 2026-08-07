@@ -20,10 +20,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import coords
+from . import table as table_module
 from .cube import SOLVED, State, apply_moves, is_solved, parse, scramble
 from .ida import PatternDatabases
 from .solvers import Algorithm, Solver, make
-from .table import DistanceTable, numpy
+from .table import DistanceTable
 
 #: An antipodal position: 14 quarter turns from solved, the hardest there is.
 HARDEST = "wppryygrygrwgprbbbwpbwyg"
@@ -184,7 +185,7 @@ def as_json(results: Sequence[Measurement]) -> str:
             for result in results
         ],
     }
-    if numpy is not None:
+    if table_module.numpy is not None:
         # Reported beside the table rather than as it: numpy builds the same
         # table in compiled code, so the number belongs to C, not to Python.
         report["note_numpy_table_ms"] = round(_measure(DistanceTable.build), 1)
@@ -210,7 +211,7 @@ def run(samples: int | None = None, as_json_only: bool = False, path: Path | Non
 
     print(f"pyrubik benchmark -- {len(states)} scrambles plus one antipodal position")
     print(f"{coords.N_STATES:,} reachable states, maximum distance 14 quarter turns")
-    print(f"numpy: {'yes' if numpy is not None else 'no'}\n")
+    print(f"numpy: {'yes' if table_module.numpy is not None else 'no'}\n")
 
     header = (
         f"{'algorithm':<11}{'setup ms':>11}{'avg ms':>10}"

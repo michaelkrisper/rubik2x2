@@ -3,6 +3,9 @@
   <PropertyGroup>
     <RootNamespace>Rubik2x2.Tests</RootNamespace>
     <IsPackable>false</IsPackable>
+    <!-- tools/measure.py publishes the solution into one folder and sizes the result;
+         the test host has no business in there. -->
+    <IsPublishable>false</IsPublishable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 

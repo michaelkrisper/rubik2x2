@@ -72,8 +72,8 @@ public sealed record BenchmarkReport
         foreach (AlgorithmResult result in Algorithms)
         {
             text.AppendLine(
-                $"{result.Name,-11}{result.SetupMs,11:F1}{result.AvgMs,10:F3}" +
-                $"{result.WorstMs,11:F3}{result.PeakMb,10:F1}{(result.Optimal ? "yes" : "NO"),9}");
+                $"{result.Name,-11}{result.SetupMs,11:F1}{Milliseconds(result.AvgMs),10}" +
+                $"{Milliseconds(result.WorstMs),11}{result.PeakMb,10:F1}{(result.Optimal ? "yes" : "NO"),9}");
         }
 
         int[] workloads = [1, 10, 100, 1_000, 10_000];
@@ -100,4 +100,8 @@ public sealed record BenchmarkReport
 
         return text.ToString().TrimEnd();
     }
+
+    /// <summary>A duration that stays readable when it is far below a millisecond.</summary>
+    private static string Milliseconds(double value) =>
+        value >= 0.001 ? value.ToString("F3") : value.ToString("G3");
 }

@@ -49,6 +49,14 @@ describe("solve", () => {
     assert.match(stderr, /Invalid input/);
   });
 
+  it("rejects a well-formed but unreachable state with exit code 1", () => {
+    // Solved but for one corner turned in place: 24 legal letters, no solution.
+    const { stdout, stderr, status } = cli("solve", "pyyyrrrrwwwwppbpybbbgggg");
+    assert.equal(status, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /^No solution: corner twists sum to 1 mod 3/);
+  });
+
   it("rejects an unknown algorithm", () => {
     assert.equal(cli("solve", HARDEST, "--algorithm", "psychic").status, 2);
   });

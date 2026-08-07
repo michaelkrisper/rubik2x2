@@ -68,6 +68,14 @@ Each module explains *why* it exists in its header comment. In short:
   is two array lookups, each coordinate alone is an admissible heuristic for
   IDA\*, and the whole state is one integer small enough to index a 3.7 MB byte
   array.
+- **Impossible cubes are rejected, not solved.** Because the rank keeps six of
+  the seven twists and derives the seventh, an unvalidated encoding would map an
+  unreachable arrangement onto some *other*, legal state and hand back a
+  confident sequence that leaves the cube unsolved. `toCubies` therefore checks
+  all four conditions of `SPEC.md` §2 — an impossible fixed corner, a slot whose
+  colours are no corner of this cube, a piece in two slots, and twists that do
+  not sum to a multiple of three — and `solve` exits 1 with
+  `No solution: …` on stderr.
 - **The table wins only above its break-even.** It costs one exhaustive search
   up front and then answers in microseconds; below roughly a thousand solves,
   searching each cube from scratch is cheaper. `node src/cli.js bench` prints

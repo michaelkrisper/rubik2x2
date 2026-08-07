@@ -64,11 +64,18 @@ typedef struct {
     coord_goal_t goal[COORD_GOAL_KEYS];      /* keyed by the fixed corner's colours */
 } coord_tables_t;
 
+/* The four ways a sticker arrangement can fail to be a real cube state. The
+ * last two matter because the index is smaller than the arrangement space: only
+ * six twists are stored and the seventh is derived, and the permutation is
+ * ranked as a bijection. An illegal arrangement would otherwise normalise into
+ * some *other*, legal state and be "solved" into a cube that is still scrambled.
+ */
 typedef enum {
     COORD_OK = 0,
     COORD_ERR_CORNER,   /* fixed corner colours occur on no solved cube */
     COORD_ERR_PIECE,    /* a slot's colours form no corner of this cube */
-    COORD_ERR_REPEAT,   /* the same piece appears in two slots */
+    COORD_ERR_REPEAT,   /* the same piece appears in more than one slot */
+    COORD_ERR_TWIST,    /* the twists do not sum to a multiple of three */
 } coord_status_t;
 
 const char *coords_status_message(coord_status_t status);

@@ -1,5 +1,6 @@
 //! The compact encoding, checked against the readable sticker model.
 
+use rubik2x2::Error;
 use rubik2x2::coords::{self, N_ORIENTATIONS, N_PERMUTATIONS, N_STATES, SOLVED_INDEX};
 use rubik2x2::cube::{self, SOLVE_MOVES, SOLVED};
 use rubik2x2::rng::Rng;
@@ -78,6 +79,72 @@ fn solve_moves_pair_each_turn_with_its_inverse() {
             assert_eq!(tables.apply(tables.apply(index, turn), turn ^ 1), index);
         }
     }
+}
+
+/// Twist the corner sitting in `slot` in place, by rotating its own three
+/// stickers among its own three facelets. Colour counts survive that untouched,
+/// so the result still parses — which is exactly why the encoding, not the
+/// parser, has to be the one to notice.
+fn twist_in_place(state: &mut cube::State, slot: usize, amount: usize) {
+    let facelets = coords::SLOTS[slot];
+    let colors: [u8; 3] = std::array::from_fn(|i| state[facelets[i]]);
+    for (i, &facelet) in facelets.iter().enumerate() {
+        state[facelet] = colors[(i + amount) % 3];
+    }
+}
+
+/// A single corner twisted in place: the cube looks almost solved and no
+/// sequence of turns can reach it, because turning a face cannot change the sum
+/// of the twists. Only six twists are ranked and the seventh is derived, so
+/// without this check the state would normalise into a *different*, legal cube
+/// and every solver would answer confidently about the wrong puzzle.
+#[test]
+fn a_corner_twisted_in_place_is_rejected() {
+    let twisted = cube::parse("pyyyrrrrwwwwppbpybbbgggg").unwrap();
+    assert_eq!(coords::encode(&twisted), Err(Error::TwistedCorner(1)));
+
+    // The same thing built by hand, both ways round.
+    for amount in [1, 2] {
+        let mut state = SOLVED;
+        twist_in_place(&mut state, 3, amount);
+        assert_eq!(coords::encode(&state), Err(Error::TwistedCorner(amount as u8)));
+    }
+}
+
+/// The near miss: three corners twisted the same way *do* sum to a multiple of
+/// three, so this cube is genuinely reachable and must be accepted. A check
+/// that simply rejected twisted corners would pass the test above and fail
+/// here.
+#[test]
+fn three_corners_twisted_the_same_way_are_accepted() {
+    let mut state = SOLVED;
+    for slot in [0, 1, 2] {
+        twist_in_place(&mut state, slot, 1);
+    }
+    assert!(!cube::is_solved(&state), "the cube really is scrambled");
+    let index = coords::encode(&state).expect("three equal twists sum to zero mod three");
+    assert!(index < N_STATES);
+}
+
+/// One piece in two slots is not a permutation, so another piece is missing and
+/// the cube cannot exist. Colour counting cannot see this — the arrangement is
+/// caught where the pieces are identified.
+#[test]
+fn one_piece_in_two_slots_is_rejected() {
+    let mut cloned = SOLVED;
+    let (source, target) = (coords::SLOTS[1], coords::SLOTS[0]);
+    for (&from, &to) in source.iter().zip(&target) {
+        cloned[to] = SOLVED[from];
+    }
+    assert_eq!(coords::encode(&cloned), Err(Error::RepeatedPiece(1)));
+
+    // The fixed corner counts as occupied too: cloning it into a free slot is
+    // the same fault, and the piece it duplicates is slot 7's.
+    let mut cloned = SOLVED;
+    for (&from, &to) in coords::SLOTS[7].iter().zip(&coords::SLOTS[0]) {
+        cloned[to] = SOLVED[from];
+    }
+    assert_eq!(coords::encode(&cloned), Err(Error::RepeatedPiece(7)));
 }
 
 #[test]

@@ -21,6 +21,13 @@ pub enum Error {
     UnknownCorner([u8; 3]),
     /// The three facelets of a slot do not form a corner of this cube.
     NoCornerAt(usize),
+    /// One corner piece occupies two slots, so the arrangement is not a
+    /// permutation of the pieces and another corner is missing entirely.
+    RepeatedPiece(usize),
+    /// The corner twists do not sum to a multiple of three — a corner is
+    /// twisted in place, which no sequence of turns can produce. Carries the
+    /// sum modulo three, so 1 or 2.
+    TwistedCorner(u8),
     /// No solution exists within the given depth.
     NoSolution(u8),
 }
@@ -45,6 +52,21 @@ impl fmt::Display for Error {
                     f,
                     "facelets {:?} do not hold a corner of this cube",
                     crate::coords::SLOTS[*slot]
+                )
+            }
+            Self::RepeatedPiece(piece) => {
+                write!(
+                    f,
+                    "the corner of facelets {:?} occupies two slots at once, \
+                     so this cube cannot exist",
+                    crate::coords::SLOTS[*piece]
+                )
+            }
+            Self::TwistedCorner(remainder) => {
+                write!(
+                    f,
+                    "the corner twists sum to {remainder} modulo 3: a corner is twisted \
+                     in place, which no sequence of turns can produce"
                 )
             }
             Self::NoSolution(depth) => write!(f, "no solution within {depth} moves"),

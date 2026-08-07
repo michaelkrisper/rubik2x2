@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use rubik2x2::cube::{self, SOLVED, State};
 use rubik2x2::rng::Rng;
 use rubik2x2::table::DistanceTable;
-use rubik2x2::{HARDEST, bfs, coords, ida};
+use rubik2x2::{Error, HARDEST, bfs, coords, ida};
 
 static TABLE: LazyLock<DistanceTable> = LazyLock::new(DistanceTable::build);
 
@@ -115,7 +115,42 @@ fn the_pattern_databases_are_admissible_but_loose() {
 #[test]
 fn an_unreachable_cube_is_reported_not_solved() {
     let nonsense = cube::parse("ryyyyrrrwwwwppppbbbbgggg").unwrap();
-    assert!(bfs::solve(&nonsense).is_err());
-    assert!(ida::solve(&nonsense).is_err());
-    assert!(TABLE.solve(&nonsense).is_err());
+    for solved in [bfs::solve(&nonsense), ida::solve(&nonsense), TABLE.solve(&nonsense)] {
+        assert_eq!(solved, Err(Error::NoCornerAt(0)));
+    }
+}
+
+/// A single corner twisted in place is physically impossible. Every solver must
+/// say so rather than answer about the legal cube it would normalise into —
+/// asserting the variant, not merely that *something* went wrong, because a
+/// loose assertion would have passed while the bug was still there.
+#[test]
+fn a_corner_twisted_in_place_is_refused_by_every_solver() {
+    let twisted = cube::parse("pyyyrrrrwwwwppbpybbbgggg").unwrap();
+    for solved in [bfs::solve(&twisted), ida::solve(&twisted), TABLE.solve(&twisted)] {
+        assert_eq!(solved, Err(Error::TwistedCorner(1)));
+    }
+}
+
+/// The near miss: three corners twisted the same way sum to zero mod three, so
+/// this one is reachable and every solver must actually solve it.
+#[test]
+fn three_corners_twisted_the_same_way_are_solved() {
+    let mut twisted = SOLVED;
+    for slot in [0, 1, 2] {
+        let facelets = coords::SLOTS[slot];
+        let colors: [u8; 3] = std::array::from_fn(|i| twisted[facelets[i]]);
+        for (i, &facelet) in facelets.iter().enumerate() {
+            twisted[facelet] = colors[(i + 1) % 3];
+        }
+    }
+    let optimal = TABLE.distance(coords::encode(&twisted).unwrap()) as usize;
+    for (name, solution) in [
+        ("bfs", bfs::solve(&twisted).unwrap()),
+        ("ida", ida::solve(&twisted).unwrap()),
+        ("table", TABLE.solve(&twisted).unwrap()),
+    ] {
+        assert_eq!(solution.len(), optimal, "{name} was not optimal");
+        assert!(solves(&twisted, &solution), "{name} returned {solution:?}, which does not solve");
+    }
 }

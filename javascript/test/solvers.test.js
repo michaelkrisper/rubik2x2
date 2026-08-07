@@ -97,6 +97,19 @@ describe("every algorithm", () => {
     broken[0] = SOLVED[4];
     for (const name of ALGORITHMS) assert.throws(() => solvers[name](broken), UnsolvableError);
   });
+
+  it("refuses a single corner turned in place rather than answering nonsense", () => {
+    // The seventh twist is derived from the other six, so an unvalidated
+    // encoding would rank this as a different, solvable state and every solver
+    // would return a confident sequence that leaves the cube unsolved.
+    const twisted = parse("pyyyrrrrwwwwppbpybbbgggg");
+    for (const name of ALGORITHMS) {
+      assert.throws(() => solvers[name](twisted), {
+        name: "UnsolvableError",
+        message: /twists sum to 1 mod 3/,
+      });
+    }
+  });
 });
 
 describe("bidirectional search", () => {

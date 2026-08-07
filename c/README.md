@@ -140,25 +140,35 @@ dependency), covering everything in SPEC.md section 4:
 - every move has order 4, a move and its inverse cancel, opposite faces commute
 - exactly facelets 11, 13 and 23 are fixed by the six solve moves
 - the whole-cube rotation group has 24 distinct elements
-- the encoding round-trips both ways, rejects unreachable arrangements, and
-  agrees with the sticker model on every move
+- the encoding round-trips both ways and agrees with the sticker model on every
+  move
+- all four unsolvable arrangements are rejected: an impossible fixed corner, a
+  slot holding no valid piece, the same piece in two slots, and twists that do
+  not sum to a multiple of three — plus the near miss, three corners twisted
+  alike, which *is* reachable and must be accepted
 - all three algorithms return equal-length solutions, each equal to the table's
   distance, and every solution actually solves its cube
 - the antipodal position `wppryygrygrwgprbbbwpbwyg` needs exactly 14 moves
 - the parallel build produces a byte-identical table for 2, 4 and 8 workers
 
-### A note on orientation
+### Two things the encoding does *not* promise
 
-SPEC.md says a cube "may be handed over in any of the 24 orientations" and that
-the goal lookup makes the encoding "correct for any orientation". That is true
-in the sense that matters — every solved cube encodes to 0 whatever way it is
-held, and every orientation of a scramble is solved correctly — but it does
-*not* mean the 24 orientations share one index. Rotating the cube puts a
-different physical piece in the fixed slot, so the permutation coordinate
-genuinely changes. What is invariant is the distance: `tests/test_rubik.c`
-checks that all 24 orientations of a scramble need the same number of moves and
-that each returned solution solves the cube it was given. (The Python reference
-behaves identically.)
+**The 24 orientations do not share an index.** Every *solved* cube encodes to 0
+whatever way it is held, and every orientation of a scramble is solved
+correctly — but rotating the cube puts a different physical piece in the fixed
+slot, so the permutation coordinate genuinely changes. What is invariant is the
+distance, and that is what the tests check: all 24 orientations of a scramble
+need the same number of moves, and each returned solution solves the cube it was
+given. It also follows that `coords_decode` inverts `coords_encode` only for
+cubes held in the standard orientation, since decoding always produces one.
+
+**An illegal arrangement will not announce itself later.** The index is smaller
+than the space of sticker arrangements: only six twists are stored and the
+seventh is derived, and the permutation is ranked as a bijection. A single
+corner turned in place therefore normalises into some *other*, perfectly legal
+state, and the solver returns a confident solution that leaves the cube
+scrambled. That is why `to_cubies()` checks all four conditions before ranking
+rather than trusting the caller.
 
 ## Memory checking
 

@@ -13,6 +13,7 @@ import {
   apply,
   decode,
   encode,
+  fromCubies,
   goalFor,
   moveTables,
   permutations,
@@ -31,6 +32,9 @@ import {
   scramble,
   toString,
 } from "../src/cube.js";
+
+/** The solved cube with one corner turned in place: legal-looking, unreachable. */
+const TWISTED_CORNER = "pyyyrrrrwwwwppbpybbbgggg";
 
 const random = randomSource(20260805);
 
@@ -128,6 +132,40 @@ describe("encode", () => {
     const broken = Uint8Array.from(SOLVED);
     broken[11] = broken[23]; // two faces of one corner sharing a colour
     assert.throws(() => encode(broken), UnsolvableError);
+  });
+
+  it("rejects the same piece in two slots", () => {
+    // Ranking a permutation that is not a bijection would quietly produce the
+    // Lehmer code of some unrelated, legal arrangement.
+    const broken = fromCubies([0, 0, 2, 3, 4, 5, 6], new Uint8Array(FREE));
+    assert.throws(() => encode(broken), {
+      name: "UnsolvableError",
+      message: /piece 0 occupies more than one slot/,
+    });
+  });
+
+  it("rejects the fixed piece sitting in a free slot", () => {
+    const broken = fromCubies([FREE, 1, 2, 3, 4, 5, 6], new Uint8Array(FREE));
+    assert.throws(() => encode(broken), UnsolvableError);
+  });
+
+  it("rejects twists that do not sum to a multiple of three", () => {
+    // A single corner turned in place: every slot holds a real piece and every
+    // piece appears once, but no sequence of turns can produce it. The rank
+    // keeps only six twists and derives the seventh, so without this check the
+    // state would encode as a different, solvable one.
+    const broken = fromCubies([0, 1, 2, 3, 4, 5, 6], [1, 0, 0, 0, 0, 0, 0]);
+    assert.throws(() => encode(broken), {
+      name: "UnsolvableError",
+      message: /twists sum to 1 mod 3/,
+    });
+    assert.throws(() => encode(parse(TWISTED_CORNER)), UnsolvableError);
+  });
+
+  it("accepts twists that do sum to a multiple of three", () => {
+    // The same two corners turned opposite ways is reachable, and must not trip
+    // the check that catches one corner turned alone.
+    assert.equal(typeof encode(fromCubies([0, 1, 2, 3, 4, 5, 6], [1, 2, 0, 0, 0, 0, 0])), "number");
   });
 });
 

@@ -207,11 +207,51 @@ static void test_encoding(const coord_tables_t *tables)
         CHECK(index == COORD_SOLVED_INDEX, "rotation %d of solved encodes to %u", r, index);
     }
 
-    /* Unreachable arrangements are rejected rather than silently mis-encoded. */
+    /* Unreachable arrangements must be rejected rather than silently
+     * mis-encoded. The index is smaller than the arrangement space -- six
+     * twists stored and the seventh derived, the permutation ranked as a
+     * bijection -- so anything illegal would otherwise normalise into some
+     * other legal state and be "solved" into a cube still scrambled. */
     cube_t broken = cube_solved;
     broken.facelet[0] = broken.facelet[4];      /* two colours swapped at one corner */
     broken.facelet[4] = cube_solved.facelet[0];
-    CHECK(coords_encode(tables, broken, &index) != COORD_OK, "twisted corner accepted");
+    CHECK(coords_encode(tables, broken, &index) == COORD_ERR_PIECE,
+          "an arrangement holding no valid piece was accepted");
+
+    /* The fixed corner's colours belong to no solved cube. */
+    cube_t stranger = cube_solved;
+    stranger.facelet[cube_fixed_corner[0]] = stranger.facelet[cube_fixed_corner[1]];
+    CHECK(coords_encode(tables, stranger, &index) == COORD_ERR_CORNER,
+          "an impossible fixed corner was accepted");
+
+    /* The same piece in two slots: the permutation is not a bijection. Built by
+     * hand because the colour counts are wrong, so it would never parse. */
+    cube_t twice = cube_solved;
+    for (int k = 0; k < 3; k++)
+        twice.facelet[coord_slots[1][k]] = cube_solved.facelet[coord_slots[0][k]];
+    CHECK(coords_encode(tables, twice, &index) == COORD_ERR_REPEAT,
+          "the same piece in two slots was accepted");
+
+    /* One corner turned in place: legal-looking pieces, but the twists sum to
+     * 1 rather than 0 mod 3. */
+    cube_t twisted;
+    CHECK(cube_parse("pyyyrrrrwwwwppbpybbbgggg", &twisted, nullptr, 0),
+          "the twisted-corner state does not parse");
+    CHECK(coords_encode(tables, twisted, &index) == COORD_ERR_TWIST,
+          "a corner twisted in place was accepted");
+
+    /* A twist on its own is not enough -- three corners twisted the same way
+     * sum to 0 mod 3 and are perfectly reachable. */
+    cube_t turnable = cube_solved;
+    for (int slot = 0; slot < 3; slot++) {
+        const uint8_t *const facelets = coord_slots[slot];
+        const uint8_t first = turnable.facelet[facelets[0]];
+        turnable.facelet[facelets[0]] = turnable.facelet[facelets[1]];
+        turnable.facelet[facelets[1]] = turnable.facelet[facelets[2]];
+        turnable.facelet[facelets[2]] = first;
+    }
+    CHECK(coords_encode(tables, turnable, &index) == COORD_OK,
+          "three corners twisted alike were rejected");
 }
 
 static void test_move_tables(const coord_tables_t *tables)
@@ -357,6 +397,17 @@ static void test_solvers(const coord_tables_t *tables, const distance_table_t *t
     CHECK(nothing.length == 0, "table returned %d moves for a solved cube", nothing.length);
     CHECK(ida_solve(tables, databases, cube_solved, &nothing) == SOLVE_OK, "ida rejected solved");
     CHECK(nothing.length == 0, "ida returned %d moves for a solved cube", nothing.length);
+
+    /* Every solver must refuse an unsolvable cube rather than return moves that
+     * leave it scrambled. */
+    cube_t twisted;
+    CHECK(cube_parse("pyyyrrrrwwwwppbpybbbgggg", &twisted, nullptr, 0),
+          "the twisted-corner state does not parse");
+    CHECK(bfs_solve(tables, twisted, &nothing) == SOLVE_INVALID, "bfs accepted a twisted corner");
+    CHECK(ida_solve(tables, databases, twisted, &nothing) == SOLVE_INVALID,
+          "ida accepted a twisted corner");
+    CHECK(table_solve(tables, table, twisted, &nothing) == SOLVE_INVALID,
+          "table accepted a twisted corner");
 }
 
 static void test_pattern_databases(const ida_databases_t *databases)

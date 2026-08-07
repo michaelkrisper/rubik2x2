@@ -21,7 +21,6 @@ target/
 # C#
 bin/
 obj/
-publish/
 
 # Editors
 .idea/

@@ -69,9 +69,28 @@ fn rotated(colors: &[u8; 3], twist: u8) -> [u8; 3] {
 }
 
 /// Split a sticker state into (piece per slot, twist per slot).
+///
+/// This is where a cube is judged physically possible, because it is the last
+/// place that can tell. Ranking is lossy on purpose — only six twists are
+/// stored and the seventh is implied — so an impossible cube handed to the
+/// ranker does not fail, it *normalises*: it silently becomes some other,
+/// legal, cube, and every solver downstream then answers confidently about the
+/// wrong puzzle. Two conditions therefore have to be caught here, before the
+/// ranking that would hide them:
+///
+/// - **the permutation must be a bijection.** A piece can sit in one slot only;
+///   a repeat means a piece was cloned and another lost.
+/// - **the twists must sum to a multiple of three.** Turning faces can never
+///   change that sum, so a cube whose corners do not add up cannot have been
+///   built by turning any face — the classic "one corner twisted in place" that
+///   looks solved and is not solvable.
 pub fn to_cubies(state: &State, pieces: &Pieces) -> Result<([u8; FREE], [u8; FREE])> {
     let mut permutation = [0u8; FREE];
     let mut orientation = [0u8; FREE];
+    // The fixed corner already occupies its own slot, so its piece starts out
+    // claimed: finding it again in a free slot is a repeat like any other.
+    let mut claimed = 1u16 << FREE;
+
     for (slot, facelets) in SLOTS[..FREE].iter().enumerate() {
         let colors: [u8; 3] = std::array::from_fn(|i| state[facelets[i]]);
         let (piece, twist) = pieces
@@ -83,8 +102,18 @@ pub fn to_cubies(state: &State, pieces: &Pieces) -> Result<([u8; FREE], [u8; FRE
                     .map(|twist| (piece, twist))
             })
             .ok_or(Error::NoCornerAt(slot))?;
+
+        if claimed & (1 << piece) != 0 {
+            return Err(Error::RepeatedPiece(piece));
+        }
+        claimed |= 1 << piece;
         permutation[slot] = piece as u8;
         orientation[slot] = twist;
+    }
+
+    let sum: u8 = orientation.iter().sum();
+    if sum % 3 != 0 {
+        return Err(Error::TwistedCorner(sum % 3));
     }
     Ok((permutation, orientation))
 }

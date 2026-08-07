@@ -185,5 +185,18 @@ public static class Benchmark
         return Stopwatch.GetElapsedTime(started).TotalMilliseconds / repeats;
     }
 
-    private static double Round(double value) => Math.Round(value, 3, MidpointRounding.AwayFromZero);
+    /// <summary>
+    /// Rounds for reporting: three decimals above a millisecond, three significant
+    /// digits below it, so a table lookup reads as 0.00041 rather than 0.
+    /// </summary>
+    private static double Round(double value)
+    {
+        if (value <= 0)
+        {
+            return 0;
+        }
+
+        int digits = value >= 1 ? 3 : (int)Math.Ceiling(-Math.Log10(value)) + 2;
+        return Math.Round(value, Math.Min(digits, 15), MidpointRounding.AwayFromZero);
+    }
 }

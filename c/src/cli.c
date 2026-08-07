@@ -97,6 +97,16 @@ static int command_solve(int argc, char **argv)
         return 1;
     }
 
+    /* Encode up front purely so an unsolvable cube can be named precisely; the
+     * solvers would reject it anyway, but only as "not a reachable state". */
+    uint32_t index;
+    const coord_status_t encoded = coords_encode(tables, state, &index);
+    if (encoded != COORD_OK) {
+        fprintf(stderr, "no solution: %s\n", coords_status_message(encoded));
+        coords_destroy(tables);
+        return 1;
+    }
+
     solution_t solution;
     solve_status_t status;
     if (strcmp(algorithm, "bfs") == 0) {

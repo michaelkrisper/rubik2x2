@@ -22,7 +22,9 @@ const char *coords_status_message(coord_status_t status)
     case COORD_OK:          return "ok";
     case COORD_ERR_CORNER:  return "the fixed corner's colours occur on no solved cube";
     case COORD_ERR_PIECE:   return "a corner's colours form no piece of this cube";
-    case COORD_ERR_REPEAT:  return "the same corner piece appears twice";
+    case COORD_ERR_REPEAT:  return "the same corner piece appears in two slots";
+    case COORD_ERR_TWIST:   return "a corner is twisted in place; the twists do not sum to "
+                                   "a multiple of three";
     }
     return "unknown";
 }
@@ -90,12 +92,14 @@ static int goal_key(cube_t state)
          + state.facelet[cube_fixed_corner[2]];
 }
 
-/* Split a sticker state into (piece per slot, twist per slot). */
+/* Split a sticker state into (piece per slot, twist per slot), rejecting
+ * anything no sequence of turns could have produced. */
 static coord_status_t to_cubies(cube_t state, const uint8_t pieces[8][3],
                                 uint8_t perm[static COORD_FREE],
                                 uint8_t twist[static COORD_FREE])
 {
     bool used[8] = {false};
+    int total_twist = 0;
     for (int slot = 0; slot < COORD_FREE; slot++) {
         const uint8_t *const facelets = coord_slots[slot];
         const uint8_t colors[3] = {
@@ -120,7 +124,16 @@ static coord_status_t to_cubies(cube_t state, const uint8_t pieces[8][3],
         used[found_piece] = true;
         perm[slot] = (uint8_t)found_piece;
         twist[slot] = (uint8_t)found_twist;
+        total_twist += found_twist;
     }
+
+    /* The fixed corner cannot absorb a twist, so on a reachable cube the seven
+     * free twists already sum to a multiple of three. Checking it here is what
+     * catches a single corner turned in place -- otherwise only six twists are
+     * ranked and the seventh is silently rewritten to whatever makes the sum
+     * come out right. */
+    if (total_twist % 3 != 0)
+        return COORD_ERR_TWIST;
     return COORD_OK;
 }
 

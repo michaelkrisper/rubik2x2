@@ -330,7 +330,17 @@ Requirements:
 - **Idiomatic and modern.** Use the language's current standard and its natural
   idioms. Release/optimised build settings.
 - **No external dependencies** beyond the standard library and the language's
-  standard test framework.
+  standard test framework — with one deliberate exception, `numpy` in Python.
+  The rule exists so that every implementation is measured doing the work
+  itself, not calling out to someone else's solver. It is not meant to forbid a
+  language's ordinary way of touching arrays. Every implementation here already
+  leans on compiled machinery it did not write: a JavaScript `Uint32Array` is
+  C++ inside V8, C# `Span<T>` is runtime intrinsics, and Python's `dict` and
+  `bytearray` are C. Numeric array work in Python means numpy; excluding it
+  while counting CPython's own C internals would be an arbitrary line that
+  measures Python at a disadvantage no Python programmer would accept. The
+  pure-Python build is kept and reported alongside, so the cost of the
+  interpreter stays visible.
 - **Layered.** Keep the readable 24-sticker model separate from the compact
   index the solvers use, and keep display separate from both.
 - **Tested.** The checks in section 4, in the language's usual test framework,

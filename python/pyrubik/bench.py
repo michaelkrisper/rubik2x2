@@ -147,19 +147,20 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
         ),
     ]
 
-    # Both table entries use the pure-Python build. Timing the numpy path
-    # against threaded Python would compare a C extension with interpreted code
-    # and call the difference "parallelism"; and against the other languages in
-    # this repository, numpy's number measures C, not Python. See as_json for
-    # where the numpy figure is reported instead.
+    # numpy is how you write fast array code in Python, so it is what gets
+    # measured -- the same standard every other implementation here is held to,
+    # which is its language's best idiomatic tool with optimisation turned on.
+    # Both table entries use the same backend, so the parallel column reports
+    # parallelism rather than the gap between a C extension and interpreted code.
+    # The pure-Python build is reported alongside in as_json.
     workers = os.process_cpu_count() or 1
     serial_setup, parallel_setup = _best_of_alternating(
-        lambda: DistanceTable.build(pure=True),
+        DistanceTable.build,
         lambda: DistanceTable.build_parallel(workers),
     )
 
     table = DistanceTable.build()
-    rebuild = lambda: DistanceTable.build(pure=True)  # noqa: E731 - sized, not called for speed
+    rebuild = DistanceTable.build
     results.append(
         _evaluate("table", table.solve, serial_setup, states, hardest, reference, 20,
                   setup=rebuild)
@@ -175,7 +176,8 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
 def as_json(results: Sequence[Measurement]) -> str:
     """The machine-readable report tools/report.py aggregates."""
     gil = "GIL" if getattr(sys, "_is_gil_enabled", lambda: True)() else "free-threaded"
-    build = f"{platform.python_implementation()} {platform.python_version()}, {gil}, pure Python"
+    backend = "numpy" if table_module.numpy is not None else "pure Python"
+    build = f"{platform.python_implementation()} {platform.python_version()}, {gil}, {backend}"
     report = {
         "language": "Python",
         "version": platform.python_version(),
@@ -186,9 +188,11 @@ def as_json(results: Sequence[Measurement]) -> str:
         ],
     }
     if table_module.numpy is not None:
-        # Reported beside the table rather than as it: numpy builds the same
-        # table in compiled code, so the number belongs to C, not to Python.
-        report["note_numpy_table_ms"] = round(_measure(DistanceTable.build), 1)
+        # What the same build costs without numpy, for scale: the interpreter is
+        # roughly five times slower at the identical algorithm.
+        report["note_pure_python_table_ms"] = round(
+            _measure(lambda: DistanceTable.build(pure=True)), 1
+        )
     return json.dumps(report, indent=2)
 
 

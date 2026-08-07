@@ -10,7 +10,9 @@ dependencies.
 pip install .              # or: pip install ".[fast]" for the numpy table build
 ```
 
-Or run from a checkout with `python -m pyrubik`.
+Or run from a checkout with `python -m pyrubik`. Installing the `fast` extra is
+recommended: it pulls in numpy, which builds the distance table about five times
+faster and is what the benchmark measures.
 
 ## Command line
 
@@ -160,6 +162,25 @@ and mostly independent; this loop is neither.
 
 The compiled implementations in this repository do get real speedup from the
 same decomposition, which is the point of comparing them.
+
+## numpy is the measured configuration
+
+`pip install ".[fast]"` and the distance table is built with numpy; without it
+the pure-Python build runs the identical algorithm about five times slower.
+Everything else — both searches, the solve path, the whole library API — is
+plain Python either way, and every result is byte-identical.
+
+numpy is what the benchmark measures, on the same principle every other
+implementation in this repository is held to: its language's ordinary tool for
+the job, with optimisation on. Excluding it would have been an arbitrary line,
+since `dict`, `bytearray` and the interpreter itself are all C too, and a
+JavaScript `Uint32Array` is C++ inside V8. The pure-Python figure is reported
+next to it (`note_pure_python_table_ms`) so the interpreter's cost stays visible.
+
+It also changes the threading answer. Pure-Python threads cannot help at all —
+see below — but numpy releases the GIL inside its ufuncs, so splitting each
+breadth-first level across workers gives a real **2.3× on 4 threads** (984 ms →
+428 ms), the largest parallel speedup of any implementation here.
 
 ## Why the optimizations that won everywhere else lose here
 

@@ -23,7 +23,7 @@ from array import array
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from itertools import repeat
+from itertools import pairwise, repeat
 from typing import Self
 
 from . import coords
@@ -141,6 +141,59 @@ def _build_numpy(progress: Progress | None) -> bytearray:
     return bytearray(distances.tobytes())
 
 
+def _build_numpy_threaded(progress: Progress | None, workers: int) -> bytearray:
+    """The numpy build with each level split across threads.
+
+    numpy releases the GIL inside its ufuncs, so unlike the pure-Python build
+    these threads can genuinely run at once. Two costs per level are worth
+    splitting: computing the six children of every frontier state, and the
+    full-array scan that collects the next frontier.
+
+    Workers racing to claim the same state is benign -- both write the same
+    marker -- so no locking is needed.
+    """
+    numpy = _numpy()
+    tables = coords.move_tables()
+    width = coords.N_ORIENTATIONS
+    permutation = numpy.array([table for _, table, _ in tables], dtype=numpy.int32)
+    orientation = numpy.array([table for _, _, table in tables], dtype=numpy.int32)
+
+    distances = numpy.zeros(coords.N_STATES, dtype=numpy.uint8)
+    distances[coords.SOLVED_INDEX] = 1
+    level = numpy.array([coords.SOLVED_INDEX], dtype=numpy.int64)
+    depth = 0
+
+    # Fixed slices of the whole array, so the frontier scan can be split too.
+    bounds = numpy.linspace(0, coords.N_STATES, workers + 1, dtype=numpy.int64)
+    windows = list(pairwise(bounds))
+
+    def claim(chunk, marker: int) -> None:
+        rows, columns = numpy.divmod(chunk, width)
+        children = (permutation[:, rows] * width + orientation[:, columns]).ravel()
+        distances[children[distances[children] == 0]] = marker
+
+    def collect(window, marker: int):
+        start, stop = window
+        return numpy.flatnonzero(distances[start:stop] == marker) + start
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pyrubik-numpy") as pool:
+        while level.size:
+            if progress is not None:
+                progress(depth, int(level.size))
+            depth += 1
+            marker = depth + 1
+
+            if level.size < workers * 256:  # too small to be worth splitting
+                claim(level, marker)
+            else:
+                list(pool.map(claim, numpy.array_split(level, workers), repeat(marker)))
+
+            found = list(pool.map(collect, windows, repeat(marker)))
+            level = numpy.concatenate(found) if found else numpy.empty(0, dtype=numpy.int64)
+
+    return bytearray(distances.tobytes())
+
+
 def _expand_slice(
     level: Sequence[int], distances: bytearray, marker: int, tables
 ) -> list[int]:
@@ -221,10 +274,22 @@ class DistanceTable:
         return cls(_build_numpy(progress), "numpy")
 
     @classmethod
-    def build_parallel(cls, workers: int | None = None, progress: Progress | None = None) -> Self:
-        """Build with threads. See :func:`_build_threaded` for what that is worth."""
+    def build_parallel(
+        cls,
+        workers: int | None = None,
+        progress: Progress | None = None,
+        pure: bool = False,
+    ) -> Self:
+        """Build with threads, matching whichever backend :meth:`build` would use.
+
+        The numpy path can genuinely parallelise, because numpy drops the GIL
+        inside its ufuncs. The pure-Python path cannot -- see
+        :func:`_build_threaded`.
+        """
         workers = workers or (os.process_cpu_count() or 1)
-        return cls(_build_threaded(progress, workers), f"threads({workers})")
+        if pure or _numpy() is None:
+            return cls(_build_threaded(progress, workers), f"python threads({workers})")
+        return cls(_build_numpy_threaded(progress, workers), f"numpy threads({workers})")
 
     def __len__(self) -> int:
         return len(self.distances)

@@ -89,7 +89,16 @@ def goal_for(state: bytes) -> bytes:
 
 
 def to_cubies(state: bytes, pieces=PIECES) -> tuple[list[int], list[int]]:
-    """Split a sticker state into (piece per slot, twist per slot)."""
+    """Split a sticker state into (piece per slot, twist per slot).
+
+    Rejects arrangements no sequence of turns can produce. Two of them are not
+    obvious from the stickers alone: the same piece appearing in two slots, and
+    a set of twists that does not sum to a multiple of three. The second matters
+    because :func:`_rank_orientation` stores only six twists and derives the
+    seventh -- without the check, a single twisted corner would quietly encode
+    as some *other*, legal cube, and the solver would return moves that solve
+    that one instead.
+    """
     permutation, orientation = [], []
     for slot in SLOTS[:FREE]:
         colors = tuple(state[facelet] for facelet in slot)
@@ -104,6 +113,11 @@ def to_cubies(state: bytes, pieces=PIECES) -> tuple[list[int], list[int]]:
             break
         else:
             raise UnsolvableError(f"facelets {slot} do not hold a corner of this cube")
+
+    if len(set(permutation)) != FREE:
+        raise UnsolvableError("a corner piece appears in more than one slot")
+    if sum(orientation) % 3:
+        raise UnsolvableError("corner twists do not sum to a multiple of three")
     return permutation, orientation
 
 
@@ -138,8 +152,10 @@ def _unrank_orientation(value: int) -> list[int]:
 def encode(state: bytes, pieces: tuple | None = None) -> int:
     """Sticker state -> dense index below :data:`N_STATES`.
 
-    Without ``pieces`` the cube's own goal orientation is looked up, so all 24
-    ways of holding the same scramble encode to the same index.
+    Without ``pieces`` the cube's own goal orientation is looked up, so a cube
+    held any of the 24 ways still encodes -- each aiming at its own goal, which
+    is always index 0. The *index* is not rotation-invariant: rotating conjugates
+    which piece counts as which. The distance is, which is what matters.
     """
     if pieces is None:
         pieces = _goal_entry(state)[1]

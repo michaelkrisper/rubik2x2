@@ -122,8 +122,28 @@ up (24 entries, precomputed) and derive the piece colour triples from **it**,
 not from the canonical solved state. Encoding is then correct for any
 orientation, and the goal index is always 0.
 
-Reject as unsolvable: a fixed-corner colour triple that no solved orientation
-has, or a slot whose colours form no valid piece.
+Note what this does *not* say: the index is **not** rotation-invariant. Rotating
+a scramble conjugates which piece counts as which, so the same physical cube held
+two ways generally yields two different indices. What is invariant — and what
+tests should assert — is that every orientation encodes, aims at index 0, and
+solves in the same number of moves.
+
+### Rejecting the impossible
+
+Four conditions must be rejected as unsolvable. The first two are visible in the
+stickers; the last two are not, and both were missed by the first draft of the
+reference implementation until two independent implementations caught them:
+
+1. a fixed-corner colour triple that no solved orientation has;
+2. a slot whose three colours form no valid piece;
+3. the same piece appearing in more than one slot;
+4. twists that do not sum to a multiple of three.
+
+Condition 4 matters more than it looks. Only six twists are stored and the
+seventh is derived, so a single twisted corner — physically impossible — encodes
+silently as some *other*, perfectly legal cube. The solver then returns a
+sequence that solves that one instead, with no error and no warning. Check the
+sum before ranking.
 
 ### Move tables
 
@@ -190,7 +210,10 @@ Also required in tests:
 
 - each move has order 4; a move and its inverse cancel; opposite faces commute
 - exactly facelets 11, 13, 23 are fixed by the six solve moves
-- the encoding round-trips (encode → decode → same state)
+- the encoding round-trips: `decode(encode(s)) == s` for a cube in the canonical
+  orientation (for any other, `decode` returns the canonical representative, so
+  compare against the state's own goal)
+- all four impossible arrangements above are rejected
 - the three algorithms return **equal-length** solutions on the same inputs
 - every returned solution actually solves its cube
 - the antipodal position `wppryygrygrwgprbbbwpbwyg` needs exactly 14 moves

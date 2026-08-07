@@ -111,11 +111,12 @@ const round = (value, digits = 3) => Number(value.toFixed(digits));
 
 /**
  * Run the whole comparison.
- * @param {{scrambles?: string | URL, samples?: number, workers?: number,
+ * @param {{scrambles?: string | URL, samples?: number, workers?: number, minMs?: number,
  *          onProgress?: (message: string) => void}} [options]
- * @returns {Promise<{language: string, version: string, build: string, algorithms: Result[]}>}
+ * @returns {Promise<{samples: number, report: {language: string, version: string,
+ *          build: string, algorithms: Result[]}}>}
  */
-export async function run({ scrambles, samples, workers, onProgress } = {}) {
+export async function run({ scrambles, samples, workers, minMs = 1000, onProgress } = {}) {
   const note = onProgress ?? (() => {});
   const states = loadScrambles(scrambles, samples);
   const hardest = parse(HARDEST);
@@ -140,21 +141,19 @@ export async function run({ scrambles, samples, workers, onProgress } = {}) {
   /** @type {Result[]} */
   const results = [];
   const plans = [
-    { name: "bfs", algorithm: "bfs", setupMs: 0, resident: 0, minMs: 1000 },
+    { name: "bfs", algorithm: "bfs", setupMs: 0, resident: 0 },
     {
       name: "ida",
       algorithm: "ida",
       setupMs: idaSetupMs,
       resident: databases.permutation.length + databases.orientation.length,
-      minMs: 1000,
     },
-    { name: "table", algorithm: "table", setupMs: tableSetupMs, resident: table.byteLength, minMs: 1000 },
+    { name: "table", algorithm: "table", setupMs: tableSetupMs, resident: table.byteLength },
     {
       name: "table-par",
       algorithm: "table",
       setupMs: parallelSetupMs,
       resident: table.byteLength,
-      minMs: 1000,
       workers: workerCount,
     },
   ];
@@ -166,38 +165,51 @@ export async function run({ scrambles, samples, workers, onProgress } = {}) {
       const solution = solve(state);
       return solution.length === distances[index] && isSolved(applyMoves(state, solution));
     });
-    const avgMs =
-      measure(
-        () => {
-          for (const state of states) solve(state);
-        },
-        { minMs: plan.minMs },
-      ) / states.length;
-    const worstMs = measure(() => solve(hardest), { minMs: plan.minMs });
-    const peakMb = peakMegabytes(() => solve(hardest), plan.resident);
+
+    // Only the build is parallelised, and the two builds produce byte-identical
+    // tables (test/table.test.js), so table-par inherits table's solve figures
+    // rather than re-measuring the same code and reporting the timing noise.
+    const solving =
+      plan.name === "table-par"
+        ? results.at(-1)
+        : {
+            avg_ms: round(
+              measure(
+                () => {
+                  for (const state of states) solve(state);
+                },
+                { minMs },
+              ) / states.length,
+            ),
+            worst_ms: round(measure(() => solve(hardest), { minMs })),
+            peak_mb: round(peakMegabytes(() => solve(hardest), plan.resident), 2),
+          };
 
     results.push({
       name: plan.name,
       setup_ms: round(plan.setupMs, 1),
-      avg_ms: round(avgMs),
-      worst_ms: round(worstMs),
-      peak_mb: round(peakMb, 1),
+      avg_ms: solving.avg_ms,
+      worst_ms: solving.worst_ms,
+      peak_mb: solving.peak_mb,
       optimal,
       ...(plan.workers === undefined ? {} : { workers: plan.workers }),
     });
   }
 
   return {
-    language: "JavaScript",
-    version: process.versions.node,
-    build: `Node.js ${process.version}, V8 ${process.versions.v8}, JIT`,
-    algorithms: results,
+    samples: states.length,
+    report: {
+      language: "JavaScript",
+      version: process.versions.node,
+      build: `Node.js ${process.version}, V8 ${process.versions.v8}, JIT`,
+      algorithms: results,
+    },
   };
 }
 
 /**
  * The human-readable report: the same numbers plus what they imply.
- * @param {Awaited<ReturnType<typeof run>>} report
+ * @param {Awaited<ReturnType<typeof run>>["report"]} report
  * @param {number} samples
  * @returns {string}
  */
@@ -223,7 +235,7 @@ export function format(report, samples) {
         result.setup_ms.toFixed(1).padStart(11) +
         result.avg_ms.toFixed(3).padStart(10) +
         result.worst_ms.toFixed(3).padStart(11) +
-        result.peak_mb.toFixed(1).padStart(10) +
+        result.peak_mb.toFixed(2).padStart(10) +
         (result.optimal ? "yes" : "NO").padStart(9),
     );
   }
@@ -239,18 +251,23 @@ export function format(report, samples) {
     lines.push(result.name.padEnd(11) + row);
   }
 
-  const [bfs, , tableResult] = report.algorithms;
-  const gain = bfs.avg_ms - tableResult.avg_ms;
+  const byName = Object.fromEntries(report.algorithms.map((result) => [result.name, result]));
+  const searchers = [byName.bfs, byName.ida];
+  const best = searchers.reduce((one, other) => (one.avg_ms <= other.avg_ms ? one : other));
+  const gain = best.avg_ms - byName.table.avg_ms;
+  const reach = Math.max(...PatternDatabases.build().reach);
+  lines.push("", `Fastest without setup: ${best.name}.`);
   if (gain > 0) {
-    const crossover = Math.trunc((tableResult.setup_ms - bfs.setup_ms) / gain) + 1;
-    const reach = Math.max(...PatternDatabases.build().reach);
+    const crossover = Math.trunc((byName.table.setup_ms - best.setup_ms) / gain) + 1;
     lines.push(
-      "",
-      `The table overtakes bidirectional search at about ${crossover.toLocaleString("en-US")} solves.`,
-      "Below that, building it costs more than it saves; above it, nothing else",
-      "comes close. IDA* is dominated everywhere: its pattern databases reach only",
-      `distance ${reach} of 14, too loose to prune a puzzle this small.`,
+      `The table overtakes it at about ${crossover.toLocaleString("en-US")} solves; below that,`,
+      "building it costs more than it saves, above it nothing else comes close.",
     );
   }
+  lines.push(
+    `IDA*'s pattern databases reach only distance ${reach} of 14 -- too loose to prune`,
+    "a puzzle this small, which is why it never dominates the table and only just",
+    "holds its own against a plain meet-in-the-middle search.",
+  );
   return lines.join("\n");
 }

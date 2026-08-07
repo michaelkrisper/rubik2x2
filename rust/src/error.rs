@@ -41,7 +41,11 @@ impl fmt::Display for Error {
                 write!(f, "corner colours {colors:?} do not occur on a solved cube")
             }
             Self::NoCornerAt(slot) => {
-                write!(f, "facelets {:?} do not hold a corner of this cube", crate::coords::SLOTS[*slot])
+                write!(
+                    f,
+                    "facelets {:?} do not hold a corner of this cube",
+                    crate::coords::SLOTS[*slot]
+                )
             }
             Self::NoSolution(depth) => write!(f, "no solution within {depth} moves"),
         }

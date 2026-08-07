@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Rubik2x2.Cli/Rubik2x2.Cli.csproj" />
+    <Project Path="src/Rubik2x2.Core/Rubik2x2.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Rubik2x2.Tests/Rubik2x2.Tests.csproj" />
+  </Folder>
+</Solution>

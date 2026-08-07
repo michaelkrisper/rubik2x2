@@ -57,9 +57,7 @@ const P: u8 = 4;
 const G: u8 = 5;
 
 /// Solved cube in the standard orientation: yellow up, red front.
-pub const SOLVED: State = [
-    Y, Y, Y, Y, R, R, R, R, W, W, W, W, P, P, P, P, B, B, B, B, G, G, G, G,
-];
+pub const SOLVED: State = [Y, Y, Y, Y, R, R, R, R, W, W, W, W, P, P, P, P, B, B, B, B, G, G, G, G];
 
 /// Move notation. Lowercase and uppercase are inverse quarter turns of one face:
 ///

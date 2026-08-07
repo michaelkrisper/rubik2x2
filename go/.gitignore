@@ -1,0 +1,2 @@
+# the binary `go build -o rubik2x2 ./cmd/rubik2x2` drops here
+/rubik2x2

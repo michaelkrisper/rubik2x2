@@ -28,8 +28,20 @@ type Table struct {
 
 // NewTable builds the distance table with a single-threaded breadth-first
 // search from the solved state.
+//
+// The six moves are unrolled and their lookup tables lifted into locals. That
+// is not decoration: this loop runs 22 million times per build, and leaving the
+// slice headers behind a struct field, to be reloaded per edge, measured 25%
+// slower.
 func NewTable() *Table {
-	tables := coords.MoveTables
+	t := coords.MoveTables
+	w0, o0 := t[0].Wide, t[0].Orient
+	w1, o1 := t[1].Wide, t[1].Orient
+	w2, o2 := t[2].Wide, t[2].Orient
+	w3, o3 := t[3].Wide, t[3].Orient
+	w4, o4 := t[4].Wide, t[4].Orient
+	w5, o5 := t[5].Wide, t[5].Orient
+
 	distances := make([]uint8, coords.NStates)
 	distances[coords.SolvedIndex] = 1
 	level := []int32{coords.SolvedIndex}
@@ -39,12 +51,29 @@ func NewTable() *Table {
 		next := make([]int32, 0, len(level)*3)
 		for _, node := range level {
 			q, r := node/coords.NOrientations, node%coords.NOrientations
-			for m := range tables {
-				child := tables[m].Wide[q] + tables[m].Orient[r]
-				if distances[child] == 0 {
-					distances[child] = marker
-					next = append(next, child)
-				}
+			if c := w0[q] + o0[r]; distances[c] == 0 {
+				distances[c] = marker
+				next = append(next, c)
+			}
+			if c := w1[q] + o1[r]; distances[c] == 0 {
+				distances[c] = marker
+				next = append(next, c)
+			}
+			if c := w2[q] + o2[r]; distances[c] == 0 {
+				distances[c] = marker
+				next = append(next, c)
+			}
+			if c := w3[q] + o3[r]; distances[c] == 0 {
+				distances[c] = marker
+				next = append(next, c)
+			}
+			if c := w4[q] + o4[r]; distances[c] == 0 {
+				distances[c] = marker
+				next = append(next, c)
+			}
+			if c := w5[q] + o5[r]; distances[c] == 0 {
+				distances[c] = marker
+				next = append(next, c)
 			}
 		}
 		level = next
@@ -61,30 +90,56 @@ const parallelCutoff = 8192
 // distances do not depend on the order within a level.
 //
 // The search is level-synchronous, so within a level the frontier splits
-// cleanly across workers; the hazard is the shared visited array, where two
-// workers can reach the same state at once. This resolves it with a lock-free
-// compare-and-swap per newly discovered state: the worker that wins the swap
-// owns the state and puts it in its own next-level buffer, and the buffers are
-// concatenated at the level boundary. Go has no atomic operation on a byte, so
-// the build works in a []atomic.Uint32 — 14.7 MB instead of 3.7 MB, narrowed to
-// bytes once at the end. That transient 4x is the price of keeping the
-// claim-and-publish step parallel; the alternative, per-worker candidate
-// buffers merged serially, keeps the byte array but hands roughly half the work
-// (the check-and-set for eight million candidate edges at the widest level)
-// back to a single thread.
+// cleanly across workers. The hazard is the shared visited state, where two
+// workers can reach the same state at once, and this resolves it by claiming:
+// a separate bitmap, one bit per state, is set with a lock-free
+// compare-and-swap, and the worker that wins the bit owns the state — it alone
+// writes the distance byte and keeps the state in its own next-level buffer.
+// The buffers are concatenated at the barrier, in whatever order they finished.
+//
+// Go has no atomic operation on a byte, which rules out swapping directly on
+// the distance array. Widening that array to []atomic.Uint32 would work but
+// measured *slower* than the serial build: the visited set is what every one of
+// the 22 million edges touches at random, and at 14.7 MB it falls out of cache.
+// The bitmap is 460 KB, small enough to stay resident, and it is the only thing
+// contended — the distance array is then written exactly once per state by its
+// owner, so no lock and no race. See the README for what that measured.
 func NewTableParallel(workers int) *Table {
 	if workers <= 0 {
 		workers = runtime.NumCPU()
 	}
-	tables := coords.MoveTables
-	claimed := make([]atomic.Uint32, coords.NStates)
-	claimed[coords.SolvedIndex].Store(1)
-	level := []int32{coords.SolvedIndex}
+	t := coords.MoveTables
+	w0, o0 := t[0].Wide, t[0].Orient
+	w1, o1 := t[1].Wide, t[1].Orient
+	w2, o2 := t[2].Wide, t[2].Orient
+	w3, o3 := t[3].Wide, t[3].Orient
+	w4, o4 := t[4].Wide, t[4].Orient
+	w5, o5 := t[5].Wide, t[5].Orient
 
-	for depth := uint32(1); len(level) > 0; depth++ {
+	distances := make([]uint8, coords.NStates)
+	seen := make([]atomic.Uint32, (coords.NStates+31)/32)
+	// claim reports whether this caller is the one that discovered the state.
+	claim := func(state int32) bool {
+		word, bit := &seen[state>>5], uint32(1)<<(uint32(state)&31)
+		for {
+			current := word.Load()
+			if current&bit != 0 {
+				return false
+			}
+			if word.CompareAndSwap(current, current|bit) {
+				return true
+			}
+		}
+	}
+
+	claim(coords.SolvedIndex)
+	distances[coords.SolvedIndex] = 1
+	level := []int32{coords.SolvedIndex}
+	buffers := make([][]int32, workers)
+
+	for depth := uint8(1); len(level) > 0; depth++ {
 		marker := depth + 1
 		parts := max(1, min(workers, len(level)/parallelCutoff))
-		buffers := make([][]int32, parts)
 
 		var wg sync.WaitGroup
 		for part := range parts {
@@ -92,16 +147,32 @@ func NewTableParallel(workers int) *Table {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				buffer := make([]int32, 0, (hi-lo)*3)
+				buffer := buffers[part][:0] // reused across levels
 				for _, node := range level[lo:hi] {
 					q, r := node/coords.NOrientations, node%coords.NOrientations
-					for m := range tables {
-						child := tables[m].Wide[q] + tables[m].Orient[r]
-						// The plain load filters out the overwhelming majority;
-						// only a genuinely new state reaches the swap.
-						if claimed[child].Load() == 0 && claimed[child].CompareAndSwap(0, marker) {
-							buffer = append(buffer, child)
-						}
+					if c := w0[q] + o0[r]; claim(c) {
+						distances[c] = marker
+						buffer = append(buffer, c)
+					}
+					if c := w1[q] + o1[r]; claim(c) {
+						distances[c] = marker
+						buffer = append(buffer, c)
+					}
+					if c := w2[q] + o2[r]; claim(c) {
+						distances[c] = marker
+						buffer = append(buffer, c)
+					}
+					if c := w3[q] + o3[r]; claim(c) {
+						distances[c] = marker
+						buffer = append(buffer, c)
+					}
+					if c := w4[q] + o4[r]; claim(c) {
+						distances[c] = marker
+						buffer = append(buffer, c)
+					}
+					if c := w5[q] + o5[r]; claim(c) {
+						distances[c] = marker
+						buffer = append(buffer, c)
 					}
 				}
 				buffers[part] = buffer
@@ -110,19 +181,14 @@ func NewTableParallel(workers int) *Table {
 		wg.Wait()
 
 		total := 0
-		for _, buffer := range buffers {
+		for _, buffer := range buffers[:parts] {
 			total += len(buffer)
 		}
 		next := make([]int32, 0, total)
-		for _, buffer := range buffers {
+		for _, buffer := range buffers[:parts] {
 			next = append(next, buffer...)
 		}
 		level = next
-	}
-
-	distances := make([]uint8, coords.NStates)
-	for i := range distances {
-		distances[i] = uint8(claimed[i].Load())
 	}
 	return &Table{distances}
 }

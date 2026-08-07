@@ -104,3 +104,26 @@ def test_impossible_piece_is_rejected():
     broken[0], broken[16] = broken[16], broken[0]
     with pytest.raises(UnsolvableError, match="do not hold a corner"):
         coords.encode(bytes(broken))
+
+
+def test_a_single_twisted_corner_is_rejected():
+    """Physically impossible: the twists of all corners must sum to 0 mod 3.
+
+    Only six twists are stored and the seventh is derived, so without this check
+    the cube would silently encode as a different, legal one -- and the solver
+    would hand back moves that solve *that* cube instead.
+    """
+    broken = bytearray(SOLVED)
+    slot = coords.SLOTS[0]
+    first, second, third = (broken[facelet] for facelet in slot)
+    broken[slot[0]], broken[slot[1]], broken[slot[2]] = second, third, first
+    with pytest.raises(UnsolvableError, match="sum to a multiple of three"):
+        coords.encode(bytes(broken))
+
+
+def test_a_duplicated_piece_is_rejected():
+    broken = bytearray(SOLVED)
+    for facelet, color in zip(coords.SLOTS[1], (SOLVED[f] for f in coords.SLOTS[0]), strict=True):
+        broken[facelet] = color
+    with pytest.raises(UnsolvableError, match="more than one slot"):
+        coords.encode(bytes(broken))

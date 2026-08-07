@@ -38,6 +38,9 @@ import { UnsolvableError } from "./cube.js";
 
 const WORKER_URL = new URL("./table-worker.js", import.meta.url);
 
+/** Smallest frontier slice worth handing to a worker. */
+const MIN_SHARE = 4096;
+
 /**
  * Breadth-first over the whole space, single-threaded. Returns `distance + 1`
  * per state, so 0 can mean "not yet reached" during the build.
@@ -148,7 +151,9 @@ export async function buildDistancesParallel({ workers, onLevel } = {}) {
     for (let depth = 0; head < levelEnd; depth++) {
       onLevel?.(depth, levelEnd - head);
       const size = levelEnd - head;
-      const share = Math.ceil(size / count);
+      // The first seven levels hold fewer states than a worker round trip is
+      // worth, so a minimum share keeps them on one thread.
+      const share = Math.max(MIN_SHARE, Math.ceil(size / count));
       await Promise.all(
         pool.map((worker, id) => {
           const start = Math.min(head + id * share, levelEnd);

@@ -8,7 +8,7 @@
 /* Every state is queued exactly once, so one buffer of COORD_STATES entries
  * holds the whole search: levels are consecutive ranges in it, no growth and no
  * double buffering. */
-enum { QUEUE_BYTES = (size_t)COORD_STATES * sizeof(uint32_t) };
+#define QUEUE_BYTES ((size_t)COORD_STATES * sizeof(uint32_t))
 
 static distance_table_t *table_alloc(int workers)
 {
@@ -104,6 +104,9 @@ typedef struct {
     uint8_t marker;
     bool done;
     pthread_barrier_t barrier;
+    /* Held by the launcher until every thread exists, so a worker cannot reach
+     * the barrier before its participant count is final. */
+    pthread_mutex_t launch;
 } par_context_t;
 
 static void par_work(par_context_t *context)
@@ -157,6 +160,8 @@ static void par_work(par_context_t *context)
 static void *par_worker(void *argument)
 {
     par_context_t *const context = argument;
+    pthread_mutex_lock(&context->launch);
+    pthread_mutex_unlock(&context->launch);
     for (;;) {
         pthread_barrier_wait(&context->barrier);
         if (context->done)
@@ -200,30 +205,28 @@ distance_table_t *table_create_parallel(const coord_tables_t *tables, int worker
     atomic_store_explicit(&context.distance[COORD_SOLVED_INDEX], 1, memory_order_relaxed);
     queue[0] = COORD_SOLVED_INDEX;
 
-    if (pthread_barrier_init(&context.barrier, nullptr, (unsigned)workers) != 0) {
+    if (pthread_mutex_init(&context.launch, nullptr) != 0
+        || pthread_barrier_init(&context.barrier, nullptr, (unsigned)workers) != 0) {
         free(queue);
         free(threads);
         table_destroy(table);
         return nullptr;
     }
 
+    pthread_mutex_lock(&context.launch);
     int started = 0;
     for (; started < workers - 1; started++)
         if (pthread_create(&threads[started], nullptr, par_worker, &context) != 0)
             break;
     if (started < workers - 1) {
-        /* Fall back rather than run with a barrier that will never be reached. */
-        context.done = true;
-        for (int i = 0; i < started; i++)
-            pthread_barrier_wait(&context.barrier);
-        for (int i = 0; i < started; i++)
-            pthread_join(threads[i], nullptr);
+        /* Fewer threads than asked for. No worker has passed the launch gate
+         * yet, so the barrier can still be resized to match what we have. */
+        workers = started + 1;
+        table->workers = workers;
         pthread_barrier_destroy(&context.barrier);
-        free(queue);
-        free(threads);
-        table_destroy(table);
-        return table_create(tables);
+        pthread_barrier_init(&context.barrier, nullptr, (unsigned)workers);
     }
+    pthread_mutex_unlock(&context.launch);
 
     uint32_t begin = 0;
     for (;;) {
@@ -243,6 +246,7 @@ distance_table_t *table_create_parallel(const coord_tables_t *tables, int worker
     for (int i = 0; i < workers - 1; i++)
         pthread_join(threads[i], nullptr);
     pthread_barrier_destroy(&context.barrier);
+    pthread_mutex_destroy(&context.launch);
     free(queue);
     free(threads);
     return table;

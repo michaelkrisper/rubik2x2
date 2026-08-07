@@ -6,11 +6,11 @@
 /* Exact distance-to-solved within one coordinate, by breadth-first search over
  * a graph small enough to sit in cache. Stores distance + 1, so 0 still means
  * "not yet reached" while the search runs. */
-static void project(uint8_t *distance, uint32_t size, const uint16_t *table, uint32_t stride)
+static bool project(uint8_t *distance, uint32_t size, const uint16_t *table, uint32_t stride)
 {
     uint32_t *const scratch = malloc((size_t)size * 2 * sizeof *scratch);
     if (!scratch)
-        return;
+        return false;
     uint32_t *current = scratch, *next = scratch + size;
 
     memset(distance, 0, size);
@@ -34,6 +34,7 @@ static void project(uint8_t *distance, uint32_t size, const uint16_t *table, uin
         count = produced;
     }
     free(scratch);
+    return true;
 }
 
 ida_databases_t *ida_databases_create(const coord_tables_t *tables)
@@ -41,10 +42,13 @@ ida_databases_t *ida_databases_create(const coord_tables_t *tables)
     ida_databases_t *const databases = malloc(sizeof *databases);
     if (!databases)
         return nullptr;
-    project(databases->permutation, COORD_PERMUTATIONS,
-            &tables->perm_raw[0][0], COORD_PERMUTATIONS);
-    project(databases->orientation, COORD_ORIENTATIONS,
-            &tables->orient[0][0], COORD_ORIENTATIONS);
+    if (!project(databases->permutation, COORD_PERMUTATIONS,
+                 &tables->perm_raw[0][0], COORD_PERMUTATIONS)
+        || !project(databases->orientation, COORD_ORIENTATIONS,
+                    &tables->orient[0][0], COORD_ORIENTATIONS)) {
+        free(databases);
+        return nullptr;
+    }
     return databases;
 }
 

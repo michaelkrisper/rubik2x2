@@ -78,7 +78,9 @@ pub fn to_cubies(state: &State, pieces: &Pieces) -> Result<([u8; FREE], [u8; FRE
             .iter()
             .enumerate()
             .find_map(|(piece, canonical)| {
-                (0..3).find(|&twist| rotated(canonical, twist) == colors).map(|twist| (piece, twist))
+                (0..3)
+                    .find(|&twist| rotated(canonical, twist) == colors)
+                    .map(|twist| (piece, twist))
             })
             .ok_or(Error::NoCornerAt(slot))?;
         permutation[slot] = piece as u8;
@@ -177,9 +179,9 @@ pub fn decode_with(index: u32, pieces: &Pieces) -> State {
 static SOLVED_PIECES: LazyLock<Pieces> = LazyLock::new(|| pieces_of(&SOLVED));
 
 /// One solve move, as the pair of lookup tables it becomes.
+/// The letter of each move stays in [`SOLVE_MOVES`], indexed the same way, so
+/// that there is one source of truth for the notation.
 pub struct MoveTable {
-    /// The move's letter, for reporting a solution.
-    pub name: char,
     /// Permutation rank -> permutation rank, **pre-multiplied by
     /// [`N_ORIENTATIONS`]** so that a child is one addition rather than a
     /// multiply and an addition. Worth having in a loop that runs tens of
@@ -252,7 +254,7 @@ impl Tables {
             })
             .collect();
 
-        MoveTable { name, permutation, orientation }
+        MoveTable { permutation, orientation }
     }
 
     /// The piece triples of the solved cube this state is aiming at.

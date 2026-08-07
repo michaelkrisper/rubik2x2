@@ -14,10 +14,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -105,8 +105,17 @@ func randomScrambles(n int) []cube.State {
 	return states
 }
 
-// measure times f, repeating it until the total is long enough to mean
-// something, and returns the mean in milliseconds.
+// rounds is how many times a measurement is repeated before the best is taken.
+const rounds = 3
+
+// measure times f and returns the best per-call mean, in milliseconds.
+//
+// It first calibrates: a call short enough to be lost in timer noise is
+// repeated until a round lasts long enough to mean something. It then takes the
+// *minimum* over several rounds rather than the average, because the noise here
+// is one-sided — a scheduler preemption, a garbage collection or a laptop CPU
+// throttling can only ever make a round slower. The minimum is both the more
+// reproducible figure and the one the machine is actually capable of.
 func measure(f func()) float64 {
 	start := time.Now()
 	f()
@@ -116,36 +125,63 @@ func measure(f func()) float64 {
 	if first < 50*time.Millisecond {
 		repeats = min(1000, int(50*time.Millisecond/max(first, time.Microsecond))+1)
 	}
-	start = time.Now()
-	for range repeats {
-		f()
+
+	best := math.Inf(1)
+	for range rounds {
+		start = time.Now()
+		for range repeats {
+			f()
+		}
+		best = min(best, float64(time.Since(start).Nanoseconds())/1e6/float64(repeats))
 	}
-	return float64(time.Since(start).Nanoseconds()) / 1e6 / float64(repeats)
+	return best
 }
 
-// peakMB is the additional heap f holds, best effort: with the collector off,
-// heap growth across f is everything f allocated and therefore an upper bound
-// on its peak.
-func peakMB(f func()) float64 {
-	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+// peakMB is best effort, and deliberately explicit about what it counts: the
+// heap the algorithm still holds once its setup is done, plus everything one
+// solve of the worst case allocates. None of the three frees anything in the
+// middle of a solve, so the sum stands in fairly for the peak — and it charges
+// the table for the 3.7 MB it keeps, which is the honest comparison.
+func peakMB(setup func() solver.Solver, state cube.State) float64 {
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	f()
+
+	solve := setup()
+	runtime.GC()
 	runtime.ReadMemStats(&after)
-	runtime.KeepAlive(sink)
-	if after.HeapAlloc < before.HeapAlloc {
-		return 0
-	}
-	return float64(after.HeapAlloc-before.HeapAlloc) / 1e6
+	retained := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+
+	allocated := after.TotalAlloc
+	sink, _ = solve(state)
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(solve)
+
+	return float64(max(0, retained)+int64(after.TotalAlloc-allocated)) / 1e6
 }
 
-// evaluate times one algorithm end to end, setup included. setup returns the
-// solver it prepared, so its cost is attributed where it belongs.
-func evaluate(name string, setup func() solver.Solver, states []cube.State,
-	hardest cube.State, table *solver.Table) Result {
+// measureBoth times two functions in alternation and returns the best round of
+// each. Interleaving is what makes the two comparable: run one after the other
+// and the second inherits whatever thermal or cache state the first left
+// behind, which on a laptop is worth more than the difference being measured.
+func measureBoth(f, g func()) (float64, float64) {
+	bestF, bestG := math.Inf(1), math.Inf(1)
+	for range rounds {
+		start := time.Now()
+		f()
+		bestF = min(bestF, float64(time.Since(start).Nanoseconds())/1e6)
+		start = time.Now()
+		g()
+		bestG = min(bestG, float64(time.Since(start).Nanoseconds())/1e6)
+	}
+	return bestF, bestG
+}
 
-	setupMS := measure(func() { setup() })
+// evaluate times one algorithm's solves. setupMS is passed in rather than
+// measured here, so that the two table builds can be timed against each other.
+func evaluate(name string, setupMS float64, setup func() solver.Solver,
+	states []cube.State, hardest cube.State, table *solver.Table) Result {
+
 	solve := setup()
 
 	avgMS := measure(func() {
@@ -154,28 +190,29 @@ func evaluate(name string, setup func() solver.Solver, states []cube.State,
 		}
 	}) / float64(len(states))
 	worstMS := measure(func() { sink, _ = solve(hardest) })
-	peak := peakMB(func() {
-		solve := setup()
-		sink, _ = solve(hardest)
-	})
+	peak := peakMB(setup, hardest)
 
 	optimal := true
-	for _, state := range append(states, hardest) {
+	check := func(state cube.State) bool {
 		solution, err := solve(state)
 		if err != nil {
-			optimal = false
-			break
+			return false
 		}
 		index, err := coords.Encode(state)
 		if err != nil || len(solution) != table.Distance(index) {
-			optimal = false
-			break
+			return false
 		}
-		if solved, err := cube.ApplyMoves(state, solution); err != nil || !solved.IsSolved() {
+		solved, err := cube.ApplyMoves(state, solution)
+		return err == nil && solved.IsSolved()
+	}
+	for _, state := range states {
+		if !check(state) {
 			optimal = false
 			break
 		}
 	}
+	optimal = optimal && check(hardest)
+
 	return Result{Name: name, SetupMS: setupMS, AvgMS: avgMS, WorstMS: worstMS,
 		PeakMB: peak, Optimal: optimal}
 }
@@ -224,11 +261,22 @@ func Run(out io.Writer, opts Options) error {
 	}
 	reference := solver.NewTable()
 
+	// The two table builds are timed against each other, since the whole point
+	// of table-par is the difference between them. bfs has no precomputation at
+	// all: the move tables it uses are built during package initialisation and
+	// shared by all three algorithms.
+	serialSetup, parallelSetup := measureBoth(
+		func() { solver.NewTable() },
+		func() { solver.NewTableParallel(workers) },
+	)
+
 	results := []Result{
-		evaluate("bfs", func() solver.Solver { return solver.BFS }, states, hardest, reference),
-		evaluate("ida", func() solver.Solver { return solver.NewPatternDB().Solve },
+		evaluate("bfs", 0, func() solver.Solver { return solver.BFS },
 			states, hardest, reference),
-		evaluate("table", func() solver.Solver { return solver.NewTable().Solve },
+		evaluate("ida", measure(func() { solver.NewPatternDB() }),
+			func() solver.Solver { return solver.NewPatternDB().Solve },
+			states, hardest, reference),
+		evaluate("table", serialSetup, func() solver.Solver { return solver.NewTable().Solve },
 			states, hardest, reference),
 	}
 
@@ -237,7 +285,7 @@ func Run(out io.Writer, opts Options) error {
 	parallel := results[len(results)-1]
 	parallel.Name = "table-par"
 	parallel.Workers = workers
-	parallel.SetupMS = measure(func() { solver.NewTableParallel(workers) })
+	parallel.SetupMS = parallelSetup
 	results = append(results, parallel)
 
 	for i := range results {
@@ -303,14 +351,19 @@ func writeText(out io.Writer, opts Options, states []cube.State, results []Resul
 		byName[r.Name] = r
 	}
 	if crossover, ok := breakEven(byName["table"], byName["bfs"]); ok {
-		permutation, orientation := solver.NewPatternDB().Reach()
 		fmt.Fprintf(out,
-			"\nThe table overtakes bidirectional search at about %d solves.\n"+
-				"Below that, building it costs more than it saves; above it, nothing else\n"+
-				"comes close. IDA* is dominated everywhere: its pattern databases reach only\n"+
-				"distance %d of %d, too loose to prune a puzzle this small.\n",
-			crossover, max(permutation, orientation), solver.MaxDepth)
+			"\nThe table overtakes bidirectional search at about %d solves. Below that,\n"+
+				"building it costs more than it saves; above it, nothing else comes close.\n",
+			crossover)
 	}
+	permutation, orientation := solver.NewPatternDB().Reach()
+	ida := byName["ida"]
+	fmt.Fprintf(out,
+		"IDA* averages %.3f ms but takes %.0f ms on the antipodal position — %.0fx its\n"+
+			"own average. Its pattern databases reach only distance %d of %d, so near the\n"+
+			"antipodes the bound has nothing left to prune with.\n",
+		ida.AvgMS, ida.WorstMS, ida.WorstMS/max(ida.AvgMS, 1e-9),
+		max(permutation, orientation), solver.MaxDepth)
 }
 
 // breakEven is the number of solves after which fast overtakes slow, setup

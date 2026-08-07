@@ -1,9 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <AssemblyName>Rubik2x2.Core</AssemblyName>
     <RootNamespace>Rubik2x2</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>Optimal solvers for the 2x2x2 Rubik's Cube (Pocket Cube).</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rubik2x2.Tests" />
+  </ItemGroup>
 
 </Project>

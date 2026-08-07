@@ -13,8 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Rubik2x2/Rubik2x2.csproj" />
-    <ProjectReference Include="../../src/Rubik2x2.Cli/Rubik2x2.Cli.csproj" />
+    <ProjectReference Include="../../src/Rubik2x2.Core/Rubik2x2.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

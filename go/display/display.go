@@ -97,7 +97,7 @@ func (c Color) cellHeight() int {
 
 // ansi256 is the nearest index in the xterm 6x6x6 colour cube.
 func ansi256(rgb [3]int) int {
-	return 16 + 36*(rgb[0]*5/255) + 6*(rgb[1]*5/255) + (rgb[2]*5/255)
+	return 16 + 36*(rgb[0]*5/255) + 6*(rgb[1]*5/255) + (rgb[2] * 5 / 255)
 }
 
 // paint renders one facelet row, always cellWidth columns wide.

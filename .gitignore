@@ -1,31 +1,27 @@
-*.py[co]
+__pycache__/
+*.py[cod]
 
-# Packages
-*.egg
-*.egg-info
-dist
-build
-eggs
-parts
-bin
-var
-sdist
-develop-eggs
-.installed.cfg
+# Packaging and environments
+*.egg-info/
+dist/
+build/
+.venv/
+uv.lock
 
-# Installer logs
-pip-log.txt
-
-# Unit test / coverage reports
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
-.tox
+htmlcov/
 
-#Translations
-*.mo
+# Rust
+target/
 
-#Mr Developer
-.mr.developer.cfg
+# C#
+bin/
+obj/
 
-.project
-.pydevproject
-
+# Editors
+.idea/
+.vscode/

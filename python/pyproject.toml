@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyrubik"
+version = "2.0.0"
+description = "An optimal solver for the 2x2x2 Rubik's Cube (Pocket Cube, Mini Cube)"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+authors = [{ name = "Michael Krisper", email = "michael.krisper@gmail.com" }]
+keywords = ["rubik", "pocket cube", "puzzle", "solver", "ida-star", "bidirectional-search"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Games/Entertainment :: Puzzle Games",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Only speeds up building the distance table; results are identical without it.
+fast = ["numpy>=1.26"]
+
+[project.urls]
+Homepage = "https://github.com/michaelkrisper/rubik2x2"
+Issues = "https://github.com/michaelkrisper/rubik2x2/issues"
+
+[project.scripts]
+pyrubik = "pyrubik.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "numpy>=1.26"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pyrubik"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# The distance-table tests search all 3.7M states; run them with `pytest -m slow`.
+addopts = "-q -m 'not slow'"
+markers = ["slow: builds the full distance table (a few seconds)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "C4", "PIE", "RET", "ARG"]
+ignore = [
+    "RET504",  # naming a value before returning it often reads better
+]

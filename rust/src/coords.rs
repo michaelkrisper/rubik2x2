@@ -296,6 +296,19 @@ impl Tables {
             .ok_or(Error::UnknownCorner(corner))
     }
 
+    /// The six move tables as plain slices.
+    ///
+    /// Hoisting them out of a search costs one line and buys a fifth of the
+    /// time: inside a loop they would be reached through a `Box<[u32]>` in a
+    /// struct, so every one of millions of edges would pay for the extra
+    /// indirection.
+    pub fn slices(&self) -> ([&[u32]; 6], [&[u32]; 6]) {
+        (
+            std::array::from_fn(|turn| self.moves[turn].permutation.as_ref()),
+            std::array::from_fn(|turn| self.moves[turn].orientation.as_ref()),
+        )
+    }
+
     /// Apply one solve move to an encoded state.
     pub fn apply(&self, index: u32, turn: usize) -> u32 {
         let table = &self.moves[turn];

@@ -15,9 +15,39 @@ namespace Rubik2x2.Solvers;
 /// meet, every shorter pairing has already been tried, so the first meeting point is
 /// a shortest solution — no heuristic and no tie-breaking required.
 /// </para>
+/// <para>
+/// The state index is dense — every value below <see cref="Coordinates.StateCount"/>
+/// is a real cube — so the visited sets are one flat array indexed by state, not a
+/// dictionary: no hashing, no collision probing, no per-node allocation. Each entry
+/// packs the arriving move, the parent state and which frontier claimed it, so a
+/// solution is read back by walking parent pointers from the meeting point. A
+/// generation stamp in the top bits makes the array reusable across solves without
+/// clearing 14 MB each time; it is cleared only when the six-bit stamp wraps.
+/// </para>
 /// </remarks>
 public static class BidirectionalSearch
 {
+    // marks[state] layout: bits 0-2 arriving move (7 = frontier root),
+    // bits 3-24 parent state, bit 25 frontier side, bits 26-31 generation stamp.
+    private const int MoveBits = 3;
+    private const uint MoveMask = (1u << MoveBits) - 1;
+    private const int RootMove = 7;
+    private const int SideShift = 25;
+    private const int GenerationShift = 26;
+    private const uint GenerationLimit = (1u << (32 - GenerationShift)) - 1;
+
+    private static readonly Lock Gate = new();
+    private static uint[]? _marks;
+    private static uint _generation;
+    private static int[] _forwardLevel = new int[1 << 15];
+    private static int[] _backwardLevel = new int[1 << 15];
+    private static int[] _following = new int[1 << 15];
+
+    /// <summary>Bytes the reusable search scratch retains between solves.</summary>
+    public static long RetainedBytes =>
+        ((long)(_marks?.Length ?? 0) * sizeof(uint))
+        + ((long)(_forwardLevel.Length + _backwardLevel.Length + _following.Length) * sizeof(int));
+
     /// <summary>Finds a shortest solution.</summary>
     /// <param name="state">The cube to solve.</param>
     /// <param name="maxDepth">Give up beyond this many moves; 14 suffices for every cube.</param>
@@ -33,64 +63,150 @@ public static class BidirectionalSearch
             return string.Empty;
         }
 
-        CoordinateMoveTables tables = CoordinateMoveTables.Shared;
-        int[][] permutations = new int[Moves.SolveCount][];
-        int[][] orientations = new int[Moves.SolveCount][];
-        for (int move = 0; move < Moves.SolveCount; move++)
+        // The scratch arrays are shared across calls; solves are serialized so that
+        // concurrent callers (the test runner, for one) cannot tear each other's marks.
+        lock (Gate)
         {
-            permutations[move] = tables.WidePermutation(move);
-            orientations[move] = tables.Orientation(move);
+            return SolveLocked(start, maxDepth);
+        }
+    }
+
+    private static string SolveLocked(int start, int maxDepth)
+    {
+        CoordinateMoveTables tables = CoordinateMoveTables.Shared;
+        int[] p0 = tables.WidePermutation(0), p1 = tables.WidePermutation(1), p2 = tables.WidePermutation(2);
+        int[] p3 = tables.WidePermutation(3), p4 = tables.WidePermutation(4), p5 = tables.WidePermutation(5);
+        int[] o0 = tables.Orientation(0), o1 = tables.Orientation(1), o2 = tables.Orientation(2);
+        int[] o3 = tables.Orientation(3), o4 = tables.Orientation(4), o5 = tables.Orientation(5);
+
+        uint[] marks = _marks ??= new uint[Coordinates.StateCount];
+        if (++_generation > GenerationLimit)
+        {
+            Array.Clear(marks);
+            _generation = 1;
         }
 
-        Dictionary<int, ulong> forward = new(1 << 16) { [start] = PackedPath.Empty };
-        Dictionary<int, ulong> backward = new(1 << 16) { [Coordinates.SolvedIndex] = PackedPath.Empty };
-        // The frontier carries each node's path with it, so expanding a level never
-        // looks a node up again.
-        List<(int Node, ulong Path)> forwardLevel = [(start, PackedPath.Empty)];
-        List<(int Node, ulong Path)> backwardLevel = [(Coordinates.SolvedIndex, PackedPath.Empty)];
+        uint generation = _generation << GenerationShift;
+        uint forwardStamp = generation;
+        uint backwardStamp = generation | (1u << SideShift);
+
+        marks[start] = forwardStamp | RootMove;
+        marks[Coordinates.SolvedIndex] = backwardStamp | RootMove;
+        _forwardLevel[0] = start;
+        _backwardLevel[0] = Coordinates.SolvedIndex;
+        int forwardCount = 1;
+        int backwardCount = 1;
 
         for (int depth = 0; depth < maxDepth; depth++)
         {
             // Always grow the cheaper side, which keeps both halves shallow.
-            bool fromGoal = backwardLevel.Count < forwardLevel.Count;
-            List<(int Node, ulong Path)> level = fromGoal ? backwardLevel : forwardLevel;
-            Dictionary<int, ulong> seen = fromGoal ? backward : forward;
-            Dictionary<int, ulong> other = fromGoal ? forward : backward;
+            bool fromGoal = backwardCount < forwardCount;
+            int[] level = fromGoal ? _backwardLevel : _forwardLevel;
+            int count = fromGoal ? backwardCount : forwardCount;
+            uint own = fromGoal ? backwardStamp : forwardStamp;
+            int[] following = _following;
+            int found = 0;
 
-            List<(int Node, ulong Path)> following = new(level.Count * 3);
-            foreach ((int node, ulong path) in level)
+            for (int i = 0; i < count; i++)
             {
+                int node = level[i];
                 int permutation = Math.DivRem(node, Coordinates.OrientationCount, out int orientation);
-                for (int move = 0; move < Moves.SolveCount; move++)
+                if (found + Moves.SolveCount > following.Length)
                 {
-                    int child = permutations[move][permutation] + orientations[move][orientation];
-                    ulong extended = PackedPath.Append(path, move);
-                    if (!seen.TryAdd(child, extended))
-                    {
-                        continue;
-                    }
+                    Array.Resize(ref following, following.Length * 2);
+                }
 
-                    if (other.TryGetValue(child, out ulong meeting))
-                    {
-                        return fromGoal
-                            ? PackedPath.Join(meeting, extended)
-                            : PackedPath.Join(extended, meeting);
-                    }
+                uint parent = own | ((uint)node << MoveBits);
 
-                    following.Add((child, extended));
+                // Six children per node, unrolled: the loop body is three array reads
+                // and a compare, so the per-move indirection would be a real share.
+                int child = p0[permutation] + o0[orientation];
+                uint seen = marks[child];
+                if (seen >> GenerationShift != generation >> GenerationShift)
+                {
+                    marks[child] = parent | 0;
+                    following[found++] = child;
+                }
+                else if ((seen ^ own) >> SideShift == 1)
+                {
+                    return BuildSolution(marks, child, node, 0, fromGoal);
+                }
+
+                child = p1[permutation] + o1[orientation];
+                seen = marks[child];
+                if (seen >> GenerationShift != generation >> GenerationShift)
+                {
+                    marks[child] = parent | 1;
+                    following[found++] = child;
+                }
+                else if ((seen ^ own) >> SideShift == 1)
+                {
+                    return BuildSolution(marks, child, node, 1, fromGoal);
+                }
+
+                child = p2[permutation] + o2[orientation];
+                seen = marks[child];
+                if (seen >> GenerationShift != generation >> GenerationShift)
+                {
+                    marks[child] = parent | 2;
+                    following[found++] = child;
+                }
+                else if ((seen ^ own) >> SideShift == 1)
+                {
+                    return BuildSolution(marks, child, node, 2, fromGoal);
+                }
+
+                child = p3[permutation] + o3[orientation];
+                seen = marks[child];
+                if (seen >> GenerationShift != generation >> GenerationShift)
+                {
+                    marks[child] = parent | 3;
+                    following[found++] = child;
+                }
+                else if ((seen ^ own) >> SideShift == 1)
+                {
+                    return BuildSolution(marks, child, node, 3, fromGoal);
+                }
+
+                child = p4[permutation] + o4[orientation];
+                seen = marks[child];
+                if (seen >> GenerationShift != generation >> GenerationShift)
+                {
+                    marks[child] = parent | 4;
+                    following[found++] = child;
+                }
+                else if ((seen ^ own) >> SideShift == 1)
+                {
+                    return BuildSolution(marks, child, node, 4, fromGoal);
+                }
+
+                child = p5[permutation] + o5[orientation];
+                seen = marks[child];
+                if (seen >> GenerationShift != generation >> GenerationShift)
+                {
+                    marks[child] = parent | 5;
+                    following[found++] = child;
+                }
+                else if ((seen ^ own) >> SideShift == 1)
+                {
+                    return BuildSolution(marks, child, node, 5, fromGoal);
                 }
             }
 
             if (fromGoal)
             {
-                backwardLevel = following;
+                _following = _backwardLevel;
+                _backwardLevel = following;
+                backwardCount = found;
             }
             else
             {
-                forwardLevel = following;
+                _following = _forwardLevel;
+                _forwardLevel = following;
+                forwardCount = found;
             }
 
-            if (forwardLevel.Count == 0 || backwardLevel.Count == 0)
+            if (found == 0)
             {
                 break;
             }
@@ -100,47 +216,66 @@ public static class BidirectionalSearch
     }
 
     /// <summary>
-    /// A path of up to 14 moves packed into one <see cref="ulong"/>: three bits per
-    /// move plus its length, so a frontier of hundreds of thousands of nodes costs no
-    /// string allocations at all.
+    /// Splices the two half-paths at the meeting state: the expanding side's chain via
+    /// <paramref name="parent"/> and <paramref name="move"/>, the other side's chain as
+    /// recorded in <paramref name="marks"/>. Moves toward the goal read straight off
+    /// the forward chain; moves recorded from the goal outward are replayed reversed
+    /// with every turn flipped, which for adjacent inverse pairs is <c>move ^ 1</c>.
     /// </summary>
-    private static class PackedPath
+    private static string BuildSolution(uint[] marks, int meeting, int parent, int move, bool fromGoal)
     {
-        private const int LengthShift = 48;
+        Span<char> moves = stackalloc char[2 * DistanceTable.MaxDistance];
+        int head = DistanceTable.MaxDistance; // Start-side moves grow down from here.
+        int tail = DistanceTable.MaxDistance; // Goal-side moves grow up from here.
 
-        internal const ulong Empty = 0;
-
-        internal static ulong Append(ulong path, int move)
+        // The expanding side's last edge, then its recorded chain back to its root.
+        if (fromGoal)
         {
-            int length = Length(path);
-            return (path & ((1UL << LengthShift) - 1))
-                | ((ulong)(uint)move << (length * 3))
-                | ((ulong)(length + 1) << LengthShift);
+            moves[tail++] = Moves.Solve[move ^ 1];
+        }
+        else
+        {
+            moves[--head] = Moves.Solve[move];
         }
 
-        internal static int Length(ulong path) => (int)(path >> LengthShift);
-
-        /// <summary>
-        /// Splices a path from the start with a path from the goal, inverting the latter:
-        /// reversed, with every turn flipped — which for adjacent inverse pairs is
-        /// <c>move ^ 1</c>.
-        /// </summary>
-        internal static string Join(ulong fromStart, ulong toGoal)
+        int node = parent;
+        uint entry = marks[node];
+        while ((entry & MoveMask) != RootMove)
         {
-            int forward = Length(fromStart);
-            int backward = Length(toGoal);
-            Span<char> moves = stackalloc char[forward + backward];
-            for (int i = 0; i < forward; i++)
+            int step = (int)(entry & MoveMask);
+            if (fromGoal)
             {
-                moves[i] = Moves.Solve[(int)((fromStart >> (i * 3)) & 7)];
+                moves[tail++] = Moves.Solve[step ^ 1];
+            }
+            else
+            {
+                moves[--head] = Moves.Solve[step];
             }
 
-            for (int i = 0; i < backward; i++)
-            {
-                moves[forward + i] = Moves.Solve[(int)((toGoal >> ((backward - 1 - i) * 3)) & 7) ^ 1];
-            }
-
-            return new string(moves);
+            node = (int)((entry >> MoveBits) & (Coordinates.StateCount - 1 | 0x3FFFFF));
+            node = (int)((entry >> MoveBits) & 0x3FFFFF);
+            entry = marks[node];
         }
+
+        // The other side's chain from the meeting state back to its root.
+        node = meeting;
+        entry = marks[node];
+        while ((entry & MoveMask) != RootMove)
+        {
+            int step = (int)(entry & MoveMask);
+            if (fromGoal)
+            {
+                moves[--head] = Moves.Solve[step];
+            }
+            else
+            {
+                moves[tail++] = Moves.Solve[step ^ 1];
+            }
+
+            node = (int)((entry >> MoveBits) & 0x3FFFFF);
+            entry = marks[node];
+        }
+
+        return new string(moves[head..tail]);
     }
 }

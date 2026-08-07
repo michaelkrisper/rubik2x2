@@ -58,11 +58,10 @@ distance_table_t *table_create(const coord_tables_t *tables)
     for (uint8_t marker = 2; begin < end; marker++) {
         for (uint32_t i = begin; i < end; i++) {
             const uint32_t index = queue[i];
-            const uint32_t quotient = index / COORD_ORIENTATIONS;
-            const uint32_t remainder = index % COORD_ORIENTATIONS;
+            const uint32_t *const perm = tables->perm_by_q[index / COORD_ORIENTATIONS];
+            const uint16_t *const orient = tables->orient_by_r[index % COORD_ORIENTATIONS];
             for (int move = 0; move < COORD_MOVES; move++) {
-                const uint32_t child =
-                    tables->perm[move][quotient] + tables->orient[move][remainder];
+                const uint32_t child = perm[move] + orient[move];
                 if (!atomic_load_explicit(&distance[child], memory_order_relaxed)) {
                     atomic_store_explicit(&distance[child], marker, memory_order_relaxed);
                     queue[tail++] = child;
@@ -127,11 +126,10 @@ static void par_work(par_context_t *context)
 
         for (uint32_t i = from; i < to; i++) {
             const uint32_t index = context->queue[i];
-            const uint32_t quotient = index / COORD_ORIENTATIONS;
-            const uint32_t remainder = index % COORD_ORIENTATIONS;
+            const uint32_t *const perm = tables->perm_by_q[index / COORD_ORIENTATIONS];
+            const uint16_t *const orient = tables->orient_by_r[index % COORD_ORIENTATIONS];
             for (int move = 0; move < COORD_MOVES; move++) {
-                const uint32_t child =
-                    tables->perm[move][quotient] + tables->orient[move][remainder];
+                const uint32_t child = perm[move] + orient[move];
                 if (atomic_load_explicit(&distance[child], memory_order_relaxed))
                     continue;
                 uint8_t expected = 0;
@@ -279,12 +277,11 @@ solve_status_t table_solve_index(const coord_tables_t *tables, const distance_ta
 
     uint32_t index = start;
     while (remaining > 0) {
-        const uint32_t quotient = index / COORD_ORIENTATIONS;
-        const uint32_t remainder = index % COORD_ORIENTATIONS;
+        const uint32_t *const perm = tables->perm_by_q[index / COORD_ORIENTATIONS];
+        const uint16_t *const orient = tables->orient_by_r[index % COORD_ORIENTATIONS];
         bool stepped = false;
         for (int move = 0; move < COORD_MOVES && !stepped; move++) {
-            const uint32_t child =
-                tables->perm[move][quotient] + tables->orient[move][remainder];
+            const uint32_t child = perm[move] + orient[move];
             if (table_distance(table, child) == remaining - 1) {
                 out->moves[out->length++] = cube_solve_move_chars[move];
                 index = child;

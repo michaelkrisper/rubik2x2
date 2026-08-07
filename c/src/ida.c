@@ -86,26 +86,31 @@ static inline int bound_of(const search_t *search, uint32_t quotient, uint32_t r
     return (permutation > orientation ? permutation : orientation) - 1;
 }
 
-static bool descend(search_t *search, uint32_t index, int depth, int limit, int last)
+/* The caller has already checked the bound of (quotient, remainder), so entry
+ * means this node is worth expanding. Testing each child's bound here, before
+ * recursing, keeps the pattern-database loads in one loop the machine predicts
+ * well and spares a call frame for the majority of children, which are cut. */
+static bool descend(search_t *search, uint32_t quotient, uint32_t remainder,
+                    int depth, int limit, int last)
 {
-    const uint32_t quotient = index / COORD_ORIENTATIONS;
-    const uint32_t remainder = index % COORD_ORIENTATIONS;
-    if (depth + bound_of(search, quotient, remainder) > limit)
-        return false;
-    if (index == COORD_SOLVED_INDEX) {
+    if ((quotient | remainder) == 0) {
         search->length = depth;
         return true;
     }
 
+    const uint16_t *const perm = search->tables->permq_by_q[quotient];
+    const uint16_t *const orient = search->tables->orient_by_r[remainder];
     for (int move = 0; move < COORD_MOVES; move++) {
         /* The solve moves pair each turn with its inverse at adjacent indices,
          * so `move ^ 1` is the one that would undo the previous turn. */
         if ((move ^ 1) == last)
             continue;
+        const uint32_t child_quotient = perm[move];
+        const uint32_t child_remainder = orient[move];
+        if (depth + 1 + bound_of(search, child_quotient, child_remainder) > limit)
+            continue;
         search->path[depth] = cube_solve_move_chars[move];
-        const uint32_t child = search->tables->perm[move][quotient]
-                             + search->tables->orient[move][remainder];
-        if (descend(search, child, depth + 1, limit, move))
+        if (descend(search, child_quotient, child_remainder, depth + 1, limit, move))
             return true;
     }
     return false;
@@ -120,10 +125,12 @@ solve_status_t ida_solve_index(const coord_tables_t *tables, const ida_databases
         return SOLVE_OK;
 
     search_t search = {.tables = tables, .databases = databases, .path = {0}, .length = 0};
-    const int first = bound_of(&search, start / COORD_ORIENTATIONS, start % COORD_ORIENTATIONS);
+    const uint32_t quotient = start / COORD_ORIENTATIONS;
+    const uint32_t remainder = start % COORD_ORIENTATIONS;
+    const int first = bound_of(&search, quotient, remainder);
 
     for (int limit = first; limit <= SOLVER_MAX_DEPTH; limit++)
-        if (descend(&search, start, 0, limit, -1)) {
+        if (descend(&search, quotient, remainder, 0, limit, -1)) {
             memcpy(out->moves, search.path, (size_t)search.length);
             out->moves[search.length] = '\0';
             out->length = search.length;

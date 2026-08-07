@@ -6,10 +6,15 @@
 #define NO_NODE UINT32_MAX
 
 /* One search direction: a node pool holding the tree of reached states, plus an
- * open-addressed set mapping state -> node so membership is a probe rather than
- * a scan. Both grow on demand; a side never holds more than about 160,000
+ * open-addressed set of the states themselves so membership is a probe rather
+ * than a scan. Both grow on demand; a side never holds more than about 160,000
  * nodes, which is why a hash set beats a 3.7 MB flag array per solve.
- */
+ *
+ * The set stores the state, not the node id: a probe is then one load with no
+ * detour through the node pool, and the loop that filters six children per node
+ * touches nothing but the slot array. The node id for a state is only ever
+ * wanted once per solve -- when the two searches meet -- and side_locate finds
+ * it by scanning the pool, which is linear but runs exactly once. */
 typedef struct {
     uint32_t *state;
     uint32_t *parent;
@@ -17,7 +22,7 @@ typedef struct {
     uint32_t count;
     uint32_t capacity;
 
-    uint32_t *slot;     /* node id + 1; 0 means empty */
+    uint32_t *slot;     /* state + 1; 0 means empty */
     uint32_t mask;      /* slot count - 1, always a power of two minus one */
 } side_t;
 
@@ -172,11 +177,10 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
 
         for (uint32_t node = begin; node < end && meeting_here == NO_NODE; node++) {
             const uint32_t index = side->state[node];
-            const uint32_t quotient = index / COORD_ORIENTATIONS;
-            const uint32_t remainder = index % COORD_ORIENTATIONS;
+            const uint32_t *const perm = tables->perm_by_q[index / COORD_ORIENTATIONS];
+            const uint16_t *const orient = tables->orient_by_r[index % COORD_ORIENTATIONS];
             for (uint8_t move = 0; move < COORD_MOVES; move++) {
-                const uint32_t child =
-                    tables->perm[move][quotient] + tables->orient[move][remainder];
+                const uint32_t child = perm[move] + orient[move];
                 if (side_find(side, child) != NO_NODE)
                     continue;
                 const uint32_t there = side_find(other, child);

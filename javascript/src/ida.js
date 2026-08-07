@@ -23,14 +23,7 @@
  * @module ida
  */
 
-import {
-  N_ORIENTATIONS,
-  N_PERMUTATIONS,
-  SOLVED_INDEX,
-  encode,
-  moveTables,
-  wideTables,
-} from "./coords.js";
+import { N_ORIENTATIONS, N_PERMUTATIONS, SOLVED_INDEX, encode, moveTables } from "./coords.js";
 import { UnsolvableError } from "./cube.js";
 import { MAX_DEPTH } from "./search.js";
 
@@ -121,41 +114,115 @@ export function solve(state, maxDepth = MAX_DEPTH) {
   const databases = PatternDatabases.build();
   const permutationDb = databases.permutation;
   const orientationDb = databases.orientation;
-  const width = N_ORIENTATIONS;
-  const tables = wideTables();
-  const permutations = tables.map((table) => table.permutation);
-  const orientations = tables.map((table) => table.orientation);
-  /** @type {number[]} */
-  const path = [];
+  // The state travels as its (permutation rank, orientation rank) pair rather
+  // than one packed index, so the descent never divides: a child is two plain
+  // table reads. The six move tables are hoisted into locals -- an indexed
+  // `tables[position][rank]` load in the innermost loop is what V8 cannot keep
+  // monomorphic -- and the loop over moves is unrolled against them. Children
+  // are bounds-checked *before* recursing; at the fringe, where nearly every
+  // child fails its bound, that trades six calls for six comparisons.
+  const tables = moveTables();
+  const p0 = tables[0].permutation, o0 = tables[0].orientation;
+  const p1 = tables[1].permutation, o1 = tables[1].orientation;
+  const p2 = tables[2].permutation, o2 = tables[2].orientation;
+  const p3 = tables[3].permutation, o3 = tables[3].orientation;
+  const p4 = tables[4].permutation, o4 = tables[4].orientation;
+  const p5 = tables[5].permutation, o5 = tables[5].orientation;
+  const path = new Int32Array(maxDepth + 1);
+  let found = 0;
 
   /**
-   * @param {number} node
+   * Expand the children of a node the caller has already bounds-checked.
+   * `limit1` is the depth limit plus 1, matching the `distance + 1` stored in
+   * the databases. `last` skips the inverse of the move that produced the node:
+   * SOLVE_MOVES pairs each turn with its inverse at adjacent indices, so move
+   * `m` undoes move `m ^ 1`.
+   * @param {number} q permutation rank
+   * @param {number} r orientation rank
    * @param {number} depth moves already made
-   * @param {number} limit budget for `depth + bound`
-   * @param {number} last index of the move that produced `node`
+   * @param {number} limit1 budget for `depth + bound`, plus 1
+   * @param {number} last index of the move that produced the node
    */
-  const descend = (node, depth, limit, last) => {
-    const quotient = (node - (node % width)) / width;
-    const remainder = node % width;
-    const bound = Math.max(permutationDb[quotient], orientationDb[remainder]) - 1;
-    if (depth + bound > limit) return false;
-    if (node === SOLVED_INDEX) return true;
-    for (let position = 0; position < 6; position++) {
-      // SOLVE_MOVES pairs each turn with its inverse at adjacent indices, so
-      // `position ^ 1` is the move that would undo the previous one.
-      if ((position ^ 1) === last) continue;
-      path.push(position);
-      if (descend(permutations[position][quotient] + orientations[position][remainder], depth + 1, limit, position)) {
-        return true;
+  const descend = (q, r, depth, limit1, last) => {
+    const depth1 = depth + 1;
+    let cq, cr, pb, ob;
+    if (last !== 1) {
+      cq = p0[q];
+      cr = o0[r];
+      if (cq === 0 && cr === 0) return (path[depth] = 0), (found = depth1), true;
+      pb = permutationDb[cq];
+      ob = orientationDb[cr];
+      if ((pb > ob ? pb : ob) + depth1 <= limit1) {
+        path[depth] = 0;
+        if (descend(cq, cr, depth1, limit1, 0)) return true;
       }
-      path.pop();
+    }
+    if (last !== 0) {
+      cq = p1[q];
+      cr = o1[r];
+      if (cq === 0 && cr === 0) return (path[depth] = 1), (found = depth1), true;
+      pb = permutationDb[cq];
+      ob = orientationDb[cr];
+      if ((pb > ob ? pb : ob) + depth1 <= limit1) {
+        path[depth] = 1;
+        if (descend(cq, cr, depth1, limit1, 1)) return true;
+      }
+    }
+    if (last !== 3) {
+      cq = p2[q];
+      cr = o2[r];
+      if (cq === 0 && cr === 0) return (path[depth] = 2), (found = depth1), true;
+      pb = permutationDb[cq];
+      ob = orientationDb[cr];
+      if ((pb > ob ? pb : ob) + depth1 <= limit1) {
+        path[depth] = 2;
+        if (descend(cq, cr, depth1, limit1, 2)) return true;
+      }
+    }
+    if (last !== 2) {
+      cq = p3[q];
+      cr = o3[r];
+      if (cq === 0 && cr === 0) return (path[depth] = 3), (found = depth1), true;
+      pb = permutationDb[cq];
+      ob = orientationDb[cr];
+      if ((pb > ob ? pb : ob) + depth1 <= limit1) {
+        path[depth] = 3;
+        if (descend(cq, cr, depth1, limit1, 3)) return true;
+      }
+    }
+    if (last !== 5) {
+      cq = p4[q];
+      cr = o4[r];
+      if (cq === 0 && cr === 0) return (path[depth] = 4), (found = depth1), true;
+      pb = permutationDb[cq];
+      ob = orientationDb[cr];
+      if ((pb > ob ? pb : ob) + depth1 <= limit1) {
+        path[depth] = 4;
+        if (descend(cq, cr, depth1, limit1, 4)) return true;
+      }
+    }
+    if (last !== 4) {
+      cq = p5[q];
+      cr = o5[r];
+      if (cq === 0 && cr === 0) return (path[depth] = 5), (found = depth1), true;
+      pb = permutationDb[cq];
+      ob = orientationDb[cr];
+      if ((pb > ob ? pb : ob) + depth1 <= limit1) {
+        path[depth] = 5;
+        if (descend(cq, cr, depth1, limit1, 5)) return true;
+      }
     }
     return false;
   };
 
+  const rootQ = Math.trunc(index / N_ORIENTATIONS);
+  const rootR = index % N_ORIENTATIONS;
   for (let limit = databases.bound(index); limit <= maxDepth; limit++) {
-    path.length = 0;
-    if (descend(index, 0, limit, -1)) return path.map((position) => tables[position].move).join("");
+    if (descend(rootQ, rootR, 0, limit + 1, -1)) {
+      let solution = "";
+      for (let step = 0; step < found; step++) solution += tables[path[step]].move;
+      return solution;
+    }
   }
 
   throw new UnsolvableError(`no solution within ${maxDepth} moves`);

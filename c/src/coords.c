@@ -185,6 +185,8 @@ static void build_move_tables(coord_tables_t *tables)
             const uint16_t mapped = rank_permutation(next);
             tables->perm_raw[move][rank] = mapped;
             tables->perm[move][rank] = (uint32_t)mapped * COORD_ORIENTATIONS;
+            tables->perm_by_q[rank][move] = (uint32_t)mapped * COORD_ORIENTATIONS;
+            tables->permq_by_q[rank][move] = mapped;
         }
 
         for (uint16_t rank = 0; rank < COORD_ORIENTATIONS; rank++) {
@@ -193,6 +195,7 @@ static void build_move_tables(coord_tables_t *tables)
             for (int slot = 0; slot < COORD_FREE; slot++)
                 next[slot] = (uint8_t)((old[source[slot]] + twist[slot]) % 3);
             tables->orient[move][rank] = rank_orientation(next);
+            tables->orient_by_r[rank][move] = tables->orient[move][rank];
         }
     }
 }

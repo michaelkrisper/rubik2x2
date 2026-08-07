@@ -60,6 +60,18 @@ typedef struct {
      * breadth-first searched over. */
     uint16_t perm_raw[COORD_MOVES][COORD_PERMUTATIONS];
 
+    /* The same data again, interleaved by state instead of by move: all six
+     * children of one coordinate sit in one or two cache lines, where the
+     * per-move rows above spread them over six. The hot search loops expand
+     * every move of one state before touching the next, so this layout is the
+     * one they want. */
+    uint32_t perm_by_q[COORD_PERMUTATIONS][COORD_MOVES];
+    uint16_t orient_by_r[COORD_ORIENTATIONS][COORD_MOVES];
+
+    /* Interleaved and unscaled: the successor *quotient* rather than the
+     * premultiplied index, for searches that keep the two halves apart. */
+    uint16_t permq_by_q[COORD_PERMUTATIONS][COORD_MOVES];
+
     uint8_t canonical[8][3];                 /* pieces of the standard solved cube */
     coord_goal_t goal[COORD_GOAL_KEYS];      /* keyed by the fixed corner's colours */
 } coord_tables_t;

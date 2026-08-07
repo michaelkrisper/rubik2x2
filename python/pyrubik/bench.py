@@ -57,7 +57,7 @@ def _measure(function: Callable[[], object], repeats: int = 1) -> float:
 
 
 def _best_of_alternating(
-    first: Callable[[], object], second: Callable[[], object], rounds: int = 3
+    first: Callable[[], object], second: Callable[[], object], rounds: int = 2
 ) -> tuple[float, float]:
     """Time two builds fairly, in milliseconds.
 
@@ -72,12 +72,23 @@ def _best_of_alternating(
     return best[0], best[1]
 
 
-def _peak_megabytes(function: Callable[[], object]) -> float:
+def _peak_megabytes(setup: Callable[[], object], solve: Callable[[object], object]) -> float:
+    """What the algorithm holds after setup, plus what one solve adds, in MB.
+
+    Retained precomputation counts -- a distance table is 3.7 MB whether or not
+    you are looking at it during the solve, and measuring the solve alone would
+    report a few hundred bytes and make the hungriest algorithm look leanest.
+    Transient memory used *while building* is deliberately excluded via
+    ``reset_peak``, since it is charged to setup time, not to holding the result.
+    """
     tracemalloc.start()
-    function()
+    before = tracemalloc.get_traced_memory()[0]
+    structures = setup()
+    tracemalloc.reset_peak()
+    solve(structures)
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
-    return peak / 1e6
+    return max(peak - before, 0) / 1e6
 
 
 def load_scrambles(path: Path | None = None, limit: int | None = None) -> list[State]:
@@ -101,10 +112,16 @@ def _evaluate(
     reference: Solver,
     repeats: int,
     workers: int | None = None,
+    setup: Callable[[], object] | None = None,
 ) -> Measurement:
+    """Time and size one algorithm.
+
+    ``setup`` rebuilds whatever the algorithm retains, so the memory figure can
+    include it -- see :func:`_peak_megabytes`.
+    """
     average = _measure(lambda: [solve(state) for state in states], repeats) / len(states)
     worst = _measure(lambda: solve(hardest), repeats)
-    peak = _peak_megabytes(lambda: solve(hardest))
+    peak = _peak_megabytes(setup or (lambda: solve), lambda _: solve(hardest))
     optimal = all(
         len(solve(state)) == len(reference(state)) and is_solved(apply_moves(state, solve(state)))
         for state in states[:25]
@@ -125,6 +142,7 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
             make(Algorithm.IDA),
             _measure(PatternDatabases.build),
             states, hardest, reference, 1,
+            setup=lambda: PatternDatabases.build.__wrapped__(PatternDatabases),
         ),
     ]
 
@@ -140,12 +158,15 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
     )
 
     table = DistanceTable.build()
-    results.append(_evaluate("table", table.solve, serial_setup, states, hardest, reference, 20))
+    rebuild = lambda: DistanceTable.build(pure=True)  # noqa: E731 - sized, not called for speed
+    results.append(
+        _evaluate("table", table.solve, serial_setup, states, hardest, reference, 20,
+                  setup=rebuild)
+    )
     # Only the build is parallelised, so the per-solve figures are the same code.
     results.append(
-        _evaluate(
-            "table-par", table.solve, parallel_setup, states, hardest, reference, 20, workers
-        )
+        _evaluate("table-par", table.solve, parallel_setup, states, hardest, reference, 20,
+                  workers, setup=rebuild)
     )
     return results
 

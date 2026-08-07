@@ -136,6 +136,29 @@ def cost(reports: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def startup(reports: list[dict]) -> str:
+    """What it costs merely to start the program, before any solving."""
+    lines = [
+        "| Language | Startup | Resident at startup | vs. one table lookup |",
+        "|---|---|---|---|",
+    ]
+    for report in reports:
+        milliseconds = report.get("startup_ms")
+        resident = report.get("startup_rss_kb")
+        lookup = _entry(report, "table").get("avg_ms")
+        ratio = (
+            f"{milliseconds / lookup:,.0f}×"
+            if milliseconds and lookup else "—"
+        )
+        lines.append(
+            f"| {report['language']} "
+            f"| {_number(milliseconds) + ' ms' if milliseconds else '—'} "
+            f"| {_bytes(resident * 1024) if resident else '—'} "
+            f"| {ratio} |"
+        )
+    return "\n".join(lines)
+
+
 def render(reports: list[dict]) -> str:
     parts = [
         summary(reports),
@@ -143,6 +166,10 @@ def render(reports: list[dict]) -> str:
         "### What it cost to get there",
         "",
         cost(reports),
+        "",
+        "### What it costs just to start",
+        "",
+        startup(reports),
         "",
         "### Every measurement",
         "",

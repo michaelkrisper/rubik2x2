@@ -153,6 +153,38 @@ def _run(command: list[str], cwd: Path, capture: bool = False) -> subprocess.Com
     return subprocess.run(command, cwd=cwd, text=True, capture_output=capture, check=False)
 
 
+def _startup(target: Target, rounds: int = 7) -> tuple[float | None, int | None]:
+    """(fastest wall time in ms, peak resident KB) for the cheapest real command.
+
+    This is the cost of starting the thing at all: process creation, loading the
+    runtime, JIT warm-up, and whatever the implementation does eagerly at start.
+    It is charged to no algorithm, but you pay it on every invocation, and for
+    the managed runtimes it dwarfs a table lookup by five orders of magnitude.
+
+    ``scramble`` is used because it is the least work any of them can be asked
+    to do while still parsing arguments and producing output.
+    """
+    if not shutil.which("/usr/bin/time"):  # pragma: no cover - depends on the box
+        return None, None
+    # /usr/bin/time reports elapsed seconds to two decimals, which rounds every
+    # compiled binary to 0.0. Take the wall time here instead and let it report
+    # only peak RSS, which it is the easy way to get.
+    command = ["/usr/bin/time", "-f", "%M", *target.run, "scramble", "-n", "1", "--seed", "1"]
+    times: list[float] = []
+    resident: list[int] = []
+    for _ in range(rounds):
+        started = time.perf_counter()
+        completed = _run(command, target.path, capture=True)
+        times.append((time.perf_counter() - started) * 1000)
+        if completed.returncode != 0:
+            return None, None
+        try:  # /usr/bin/time writes its line last, on stderr
+            resident.append(int(completed.stderr.strip().splitlines()[-1]))
+        except (IndexError, ValueError):
+            return None, None
+    return min(times), sorted(resident)[len(resident) // 2]
+
+
 def measure(target: Target, skip_build: bool) -> dict | None:
     if not target.path.is_dir():
         print(f"  {target.name}: not implemented yet, skipping")
@@ -185,10 +217,15 @@ def measure(target: Target, skip_build: bool) -> dict | None:
         print(f"  {target.name}: unreadable JSON ({error})")
         return None
 
+    print(f"  timing {target.name} startup...", flush=True)
+    startup_ms, startup_rss_kb = _startup(target)
+
     source_files, source_lines = _count(target, target.source_globs)
     test_files, test_lines = _count(target, target.test_globs)
     report |= {
         "build_ms": build_ms,
+        "startup_ms": startup_ms,
+        "startup_rss_kb": startup_rss_kb,
         "artifact_bytes": _size(target),
         "source_files": source_files,
         "source_lines": source_lines,

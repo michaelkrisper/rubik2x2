@@ -70,8 +70,9 @@ the 2x2x2.
 ## Results
 
 All implementations solve the same 200 scrambles from
-[`bench/scrambles.txt`](bench/scrambles.txt), measured one at a time on the same
-machine so nothing competes for cores. Reproduce with:
+[`bench/scrambles.txt`](bench/scrambles.txt) — the same file, not each language's
+own random generator — measured one at a time so nothing competes for cores.
+Machine: Intel i5-4258U, 2 physical cores, 4 threads, 3 MiB L3, Fedora 44.
 
 ```sh
 python3 tools/measure.py            # builds and benchmarks each, sequentially
@@ -80,11 +81,117 @@ python3 tools/report.py             # renders the tables below
 
 <!-- BENCHMARK:BEGIN -->
 
-_Not yet measured. Run `python3 tools/measure.py`._
+| Language | Version | Table build | Per solve | Break-even | Threaded build |
+|---|---|---|---|---|---|
+| C | gcc 16.1.1 | 151 ms | 0.0004 ms | 673 solves | 1.72× (4 threads) |
+| C++ | C++23 (GCC 16.1.1) | 194 ms | 0.00049 ms | 642 solves | 1.99× (4 threads) |
+| Rust | 1.97.1 | 228 ms | 0.0006 ms | 707 solves | 1.86× (4 threads) |
+| Go | 1.26.5-X:nodwarf5 | 229 ms | 0.001 ms | 305 solves | 1.26× (4 threads) |
+| C# | 10.0.10 | 239 ms | 0.00075 ms | 239 solves | 1.31× (4 threads) |
+| JavaScript | 24.18.0 | 360 ms | 0.002 ms | 431 solves | 0.77× (4 threads) |
+| Python | 3.14.6 | 4,686 ms | 0.057 ms | 1,630 solves | 0.59× (4 threads) |
+
+### What it cost to get there
+
+| Language | Build from clean | Artifact | Source files | Source lines | Test lines |
+|---|---|---|---|---|---|
+| C | 2.0 s | 56 KB | 17 | 2,126 | 426 |
+| C++ | 31.6 s | 257 KB | 9 | 1,339 | 491 |
+| Rust | 11.0 s | 601 KB | 13 | 1,269 | 366 |
+| Go | 9.9 s | 2.1 MB | 15 | 2,221 | 805 |
+| C# | 3.0 s | 224 KB | 30 | 2,103 | 408 |
+| JavaScript | — | 131 KB | 11 | 1,716 | 694 |
+| Python | — | 59 KB | 11 | 1,256 | 528 |
+
+### What it costs just to start
+
+| Language | Startup | Resident at startup | vs. one table lookup |
+|---|---|---|---|
+| C | 1.5 ms | 1.6 MB | 3,786× |
+| C++ | 3.0 ms | 4.0 MB | 6,033× |
+| Rust | 1.9 ms | 2.2 MB | 3,157× |
+| Go | 8.5 ms | 2.9 MB | 8,528× |
+| C# | 51.4 ms | 26.9 MB | 68,579× |
+| JavaScript | 192 ms | 56.2 MB | 96,113× |
+| Python | 236 ms | 33.1 MB | 4,118× |
+
+### Every measurement
+
+**Setup — one-time precomputation, milliseconds**
+
+| Language | bfs | ida | table | table-par |
+|---|---|---|---|---|
+| C | 0 | 0.12 | 151 | 87.5 |
+| C++ | 0 | 0.119 | 194 | 97.4 |
+| Rust | 0 | 0.1 | 228 | 123 |
+| Go | 0 | 0.24 | 229 | 182 |
+| C# | 0 | 0.544 | 239 | 183 |
+| JavaScript | 0 | 7.7 | 360 | 466 |
+| Python | 0 | 3.5 | 4,686 | 7,936 |
+
+**Average per solve, milliseconds (200 scrambles)**
+
+| Language | bfs | ida | table | table-par |
+|---|---|---|---|---|
+| C | 0.225 | 0.124 | 0.0004 | 0.0004 |
+| C++ | 0.302 | 0.161 | 0.00049 | 0.00049 |
+| Rust | 0.324 | 0.189 | 0.0006 | 0.0006 |
+| Go | 0.753 | 0.3 | 0.001 | 0.001 |
+| C# | 1.0 | 0.297 | 0.00075 | 0.00075 |
+| JavaScript | 0.838 | 0.887 | 0.002 | 0.002 |
+| Python | 2.9 | 9.9 | 0.057 | 0.048 |
+
+**Worst case — the antipodal position, milliseconds**
+
+| Language | bfs | ida | table | table-par |
+|---|---|---|---|---|
+| C | 3.8 | 13.2 | 0.0003 | 0.0003 |
+| C++ | 6.6 | 18.0 | 0.00025 | 0.00025 |
+| Rust | 4.5 | 21.6 | 0.0004 | 0.0004 |
+| Go | 11.7 | 33.3 | 0.001 | 0.001 |
+| C# | 6.4 | 28.8 | 0.00048 | 0.00048 |
+| JavaScript | 16.9 | 96.3 | 0.001 | 0.001 |
+| Python | 46.9 | 1,124 | 0.07 | 0.043 |
+
+**Peak memory while solving, MB**
+
+| Language | bfs | ida | table | table-par |
+|---|---|---|---|---|
+| C | 1.4 | 0.01 | 3.7 | 3.7 |
+| C++ | 3.9 | 1.4e-05 | 3.7 | 3.7 |
+| Rust | 1.8 | 0 | 3.7 | 3.7 |
+| Go | 2.7 | 0.006 | 3.7 | 3.7 |
+| C# | 6.8 | 0.006 | 3.7 | 3.7 |
+| JavaScript | 6.8 | 1.2 | 3.7 | 3.7 |
+| Python | 9.4 | 0.0084 | 3.7 | 3.7 |
+
+Builds: C C23, -O3 -march=native -flto; C++ g++ -std=c++23 -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, pure Python
 
 <!-- BENCHMARK:END -->
 
 ### Reading the numbers
+
+**Startup can cost more than the entire problem.** This is the result that most
+changes what you would actually build. A table lookup solves any cube in
+0.4 microseconds in C — but starting the C binary takes 1.5 ms, roughly four
+thousand solves' worth. Starting Node takes 192 ms and 56 MB, which is ninety-six
+thousand solves. For a command-line tool invoked once, the runtime you chose
+dominates so completely that the algorithm barely registers; for a long-running
+service, it is free and the per-solve column is the only one that matters. The
+same seven programs rank almost inversely under those two readings.
+
+**The spread between languages is not one number.** Building the table spans 31×
+(C 151 ms to Python 4.7 s), a single table lookup spans 142×, but bidirectional
+search spans only 13× and the *artifact* spans 38× the other way (C 56 KB to Go
+2.1 MB). Which language is "fast" depends entirely on which of these you are
+paying for.
+
+**Threading has a ceiling here, and it is the memory system.** C++ reaches 1.99×,
+Rust 1.86×, C 1.72× — all close to the 2 physical cores, none beyond it despite 4
+hardware threads. The table build is memory-latency bound: 3.7 MB does not fit in
+3 MiB of L3, so the second thread per core waits on the same cache misses. Go's
+implementation shows this most directly — it measured a 460 KB claim bitmap
+against a 14.7 MB atomic array and found the larger one *slower than serial*.
 
 Three things hold in every language:
 
@@ -126,11 +233,23 @@ its frontiers are small. The build is level-synchronous, so each level's frontie
 splits cleanly across workers, and races on the shared visited array are benign:
 two workers reaching the same state write the same value.
 
-The compiled languages get real speedup from that. Python does not, on either
-interpreter — under the GIL the inner loop is pure bytecode so threads merely
-take turns, and on the free-threaded 3.14 build the shared array turns into
-contention instead of parallelism. The per-language READMEs give the numbers and
-the approach each one chose.
+The compiled languages get real speedup from that, up to the ~2× the hardware
+allows. Python does not, on either interpreter: under the GIL the inner loop is
+pure bytecode so threads merely take turns, and on the free-threaded 3.14 build
+the shared array turns into contention instead of parallelism — that build is
+already 26% slower single-threaded, and adding threads makes it worse still.
+JavaScript also lands below 1.0×, where worker startup costs more than it saves
+on a build that only takes a third of a second.
+
+Two implementation choices mattered more than the language:
+
+- **Claim states through a small bitmap, not a wide atomic array.** One bit per
+  state is 460 KB and stays in cache; one atomic word per state is 14.7 MB and
+  does not.
+- **A single solve is not worth parallelising.** It is milliseconds of work over
+  small frontiers; the coordination costs more than the search.
+
+The per-language READMEs give the numbers and the scheme each one chose.
 
 ## Correctness
 

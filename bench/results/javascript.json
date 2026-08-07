@@ -1,0 +1,46 @@
+{
+  "language": "JavaScript",
+  "version": "24.18.0",
+  "build": "Node.js v24.18.0, V8 13.6.233.17-node.50, JIT",
+  "algorithms": [
+    {
+      "name": "bfs",
+      "setup_ms": 0,
+      "avg_ms": 0.945,
+      "worst_ms": 33.548,
+      "peak_mb": 6.8,
+      "optimal": true
+    },
+    {
+      "name": "ida",
+      "setup_ms": 13,
+      "avg_ms": 1.345,
+      "worst_ms": 176.215,
+      "peak_mb": 1.16,
+      "optimal": true
+    },
+    {
+      "name": "table",
+      "setup_ms": 529.6,
+      "avg_ms": 0.002,
+      "worst_ms": 0.002,
+      "peak_mb": 3.68,
+      "optimal": true
+    },
+    {
+      "name": "table-par",
+      "setup_ms": 657.3,
+      "avg_ms": 0.002,
+      "worst_ms": 0.002,
+      "peak_mb": 3.68,
+      "optimal": true,
+      "workers": 4
+    }
+  ],
+  "build_ms": null,
+  "artifact_bytes": 131426,
+  "source_files": 11,
+  "source_lines": 1692,
+  "test_files": 6,
+  "test_lines": 654
+}

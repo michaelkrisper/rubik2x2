@@ -1,0 +1,46 @@
+{
+  "language": "Go",
+  "version": "1.26.5-X:nodwarf5",
+  "build": "gc, linux/amd64, optimised",
+  "algorithms": [
+    {
+      "name": "bfs",
+      "setup_ms": 0,
+      "avg_ms": 0.752,
+      "worst_ms": 10.93,
+      "peak_mb": 2.726,
+      "optimal": true
+    },
+    {
+      "name": "ida",
+      "setup_ms": 0.215,
+      "avg_ms": 0.306,
+      "worst_ms": 33.634,
+      "peak_mb": 0.006,
+      "optimal": true
+    },
+    {
+      "name": "table",
+      "setup_ms": 228.934,
+      "avg_ms": 0.001,
+      "worst_ms": 0.001,
+      "peak_mb": 3.678,
+      "optimal": true
+    },
+    {
+      "name": "table-par",
+      "setup_ms": 177.392,
+      "avg_ms": 0.001,
+      "worst_ms": 0.001,
+      "peak_mb": 3.678,
+      "optimal": true,
+      "workers": 4
+    }
+  ],
+  "build_ms": null,
+  "artifact_bytes": 3304428,
+  "source_files": 15,
+  "source_lines": 2221,
+  "test_files": 6,
+  "test_lines": 805
+}

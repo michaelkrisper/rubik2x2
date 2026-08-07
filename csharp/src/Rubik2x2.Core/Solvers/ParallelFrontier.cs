@@ -8,25 +8,32 @@ namespace Rubik2x2.Solvers;
 /// Breadth-first search is level-synchronous: every state at depth <c>d</c> is known
 /// before any state at depth <c>d+1</c> is expanded. That barrier is the whole
 /// opportunity — within a level the frontier is just a list of independent nodes, so
-/// it can be sliced across workers and merged at the barrier.
+/// it can be sliced across workers and merged where they meet.
 /// </para>
 /// <para>
 /// The hazard is the shared array: two workers can reach the same unvisited state at
 /// the same moment, and both would append it. .NET has no atomic operation on a
 /// single <see cref="byte"/>, so the claim is made on a side bitset of 32-bit words
-/// with <see cref="Interlocked.CompareExchange(ref int, int, int)"/>: whoever sets
+/// with <see cref="Interlocked.CompareExchange(ref uint, uint, uint)"/>: whoever sets
 /// the bit owns the state and is the only one to write its distance byte and append
-/// it. The bitset costs 460 KB, one twelfth of a second byte array, and the common
-/// case — a state already visited — is a plain read with no bus traffic. Each worker
-/// fills its own buffer, and the buffers are concatenated once per level, so nothing
+/// it. The bitset costs 460 KB — one eighth of a second byte array — and the common
+/// case, a state already visited, stays a plain read with no bus traffic. Each worker
+/// fills a buffer of its own; the buffers are concatenated once per level, so nothing
 /// else is shared.
+/// </para>
+/// <para>
+/// The workers are dedicated threads around a <see cref="Barrier"/> rather than
+/// <see cref="Parallel.For(int, int, Action{int})"/>. Whole levels take a few
+/// milliseconds each and the build is over in a few hundred, which is the same
+/// timescale as the thread pool's ramp-up: measured with <c>Parallel.For</c> the
+/// build time swung between one and two times the sequential build depending on how
+/// warm the pool happened to be. Threads that live for the whole search make the
+/// figure repeatable, and the barrier's post-phase action is a natural place to merge
+/// the level.
 /// </para>
 /// </remarks>
 internal static class ParallelFrontier
 {
-    /// <summary>Below this many nodes a level is not worth handing to the scheduler.</summary>
-    private const int ParallelThreshold = 4096;
-
     internal static byte[] Search(int workers, DistanceTable.Progress? progress)
     {
         CoordinateMoveTables tables = CoordinateMoveTables.Shared;
@@ -36,17 +43,15 @@ internal static class ParallelFrontier
         int[] o3 = tables.Orientation(3), o4 = tables.Orientation(4), o5 = tables.Orientation(5);
 
         byte[] distances = new byte[Coordinates.StateCount];
-        uint[] claimed = new uint[(Coordinates.StateCount + 31) / 32];
-
+        uint[] claimed = new uint[((Coordinates.StateCount + 31) / 32) + 1];
         Claim(claimed, Coordinates.SolvedIndex);
         distances[Coordinates.SolvedIndex] = 1;
 
-        int chunkCount = workers * 4; // Slices per level: enough to even out stragglers.
-        int[][] buffers = new int[chunkCount][];
-        int[] counts = new int[chunkCount];
-        for (int chunk = 0; chunk < chunkCount; chunk++)
+        int[][] buffers = new int[workers][];
+        int[] counts = new int[workers];
+        for (int worker = 0; worker < workers; worker++)
         {
-            buffers[chunk] = new int[1 << 16];
+            buffers[worker] = new int[1 << 16];
         }
 
         int[] level = new int[1 << 16];
@@ -54,24 +59,53 @@ internal static class ParallelFrontier
         level[0] = Coordinates.SolvedIndex;
         int levelCount = 1;
         int depth = 0;
-        ParallelOptions options = new() { MaxDegreeOfParallelism = workers };
+        byte marker = 2; // Children of the solved state are one move out: 1, stored as 2.
 
-        while (levelCount > 0)
+        using Barrier barrier = new(workers, _ =>
         {
             progress?.Invoke(depth, levelCount);
             depth++;
-            byte marker = (byte)(depth + 1);
+            marker = (byte)(depth + 2);
 
-            int slices = levelCount < ParallelThreshold ? 1 : chunkCount;
-            int slice = ((levelCount - 1) / slices) + 1;
-            int[] frontier = level;
-            int nodes = levelCount;
-
-            Parallel.For(0, slices, options, chunk =>
+            int total = 0;
+            for (int worker = 0; worker < workers; worker++)
             {
-                int start = chunk * slice;
+                total += counts[worker];
+            }
+
+            if (total > next.Length)
+            {
+                next = new int[Math.Max(total, next.Length * 2)];
+            }
+
+            int offset = 0;
+            for (int worker = 0; worker < workers; worker++)
+            {
+                Array.Copy(buffers[worker], 0, next, offset, counts[worker]);
+                offset += counts[worker];
+                counts[worker] = 0;
+            }
+
+            (level, next) = (next, level);
+            levelCount = total;
+        });
+
+        void Work(int id)
+        {
+            while (true)
+            {
+                int nodes = levelCount;
+                if (nodes == 0)
+                {
+                    return;
+                }
+
+                int slice = ((nodes - 1) / workers) + 1;
+                int start = Math.Min(id * slice, nodes);
                 int end = Math.Min(start + slice, nodes);
-                int[] buffer = buffers[chunk];
+                int[] frontier = level;
+                int[] buffer = buffers[id];
+                byte value = marker;
                 int found = 0;
 
                 for (int i = start; i < end; i++)
@@ -82,77 +116,73 @@ internal static class ParallelFrontier
                         Array.Resize(ref buffer, buffer.Length * 2);
                     }
 
-                    // Unrolled exactly as in the sequential build, so the two measure the
-                    // same work and their setup times can be compared. The distance read
-                    // is a hint only — the claim is what decides ownership.
+                    // Unrolled exactly as in the sequential build, so both measure the
+                    // same work. The distance read is a hint; the claim decides ownership.
                     int child = p0[permutation] + o0[orientation];
                     if (distances[child] == 0 && Claim(claimed, child))
                     {
-                        distances[child] = marker;
+                        distances[child] = value;
                         buffer[found++] = child;
                     }
 
                     child = p1[permutation] + o1[orientation];
                     if (distances[child] == 0 && Claim(claimed, child))
                     {
-                        distances[child] = marker;
+                        distances[child] = value;
                         buffer[found++] = child;
                     }
 
                     child = p2[permutation] + o2[orientation];
                     if (distances[child] == 0 && Claim(claimed, child))
                     {
-                        distances[child] = marker;
+                        distances[child] = value;
                         buffer[found++] = child;
                     }
 
                     child = p3[permutation] + o3[orientation];
                     if (distances[child] == 0 && Claim(claimed, child))
                     {
-                        distances[child] = marker;
+                        distances[child] = value;
                         buffer[found++] = child;
                     }
 
                     child = p4[permutation] + o4[orientation];
                     if (distances[child] == 0 && Claim(claimed, child))
                     {
-                        distances[child] = marker;
+                        distances[child] = value;
                         buffer[found++] = child;
                     }
 
                     child = p5[permutation] + o5[orientation];
                     if (distances[child] == 0 && Claim(claimed, child))
                     {
-                        distances[child] = marker;
+                        distances[child] = value;
                         buffer[found++] = child;
                     }
                 }
 
-                buffers[chunk] = buffer;
-                counts[chunk] = found;
-            });
-
-            int total = 0;
-            for (int chunk = 0; chunk < slices; chunk++)
-            {
-                total += counts[chunk];
+                buffers[id] = buffer;
+                counts[id] = found;
+                barrier.SignalAndWait();
             }
+        }
 
-            if (total > next.Length)
+        Thread[] threads = new Thread[workers - 1];
+        for (int worker = 0; worker < threads.Length; worker++)
+        {
+            int id = worker + 1;
+            threads[worker] = new Thread(() => Work(id))
             {
-                next = new int[Math.Max(total, next.Length * 2)];
-            }
+                IsBackground = true,
+                Name = $"rubik2x2-table-{id}",
+            };
+            threads[worker].Start();
+        }
 
-            int offset = 0;
-            for (int chunk = 0; chunk < slices; chunk++)
-            {
-                Array.Copy(buffers[chunk], 0, next, offset, counts[chunk]);
-                offset += counts[chunk];
-                counts[chunk] = 0;
-            }
-
-            (level, next) = (next, level);
-            levelCount = total;
+        Work(0); // The caller is a worker too; one fewer thread to create and schedule.
+        foreach (Thread thread in threads)
+        {
+            thread.Join();
         }
 
         return distances;

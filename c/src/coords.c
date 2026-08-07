@@ -1,7 +1,6 @@
 #include "coords.h"
 
 #include <stdlib.h>
-#include <string.h>
 
 const uint8_t coord_slots[8][3] = {
     {16,  0, 14},   /* left-up-back */

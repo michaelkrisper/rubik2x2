@@ -208,21 +208,47 @@ export function goalFor(state) {
 
 /**
  * Split a sticker state into (piece per slot, twist per slot).
+ *
+ * This is also where a sticker arrangement is checked for being a cube at all.
+ * The ranking below keeps only six of the seven twists and recovers the seventh
+ * from the rule that they sum to zero, so an arrangement that breaks that rule
+ * would silently rank as some *other*, legal state and the solvers would return
+ * a confident sequence that does not solve the cube in front of them. The same
+ * goes for a piece occurring twice: the Lehmer code of a non-bijection is the
+ * rank of an unrelated permutation. Both have to be rejected here, before the
+ * information is thrown away.
+ *
  * @param {Uint8Array} state
  * @param {Goal} [goal] which solved cube to measure against; defaults to the state's own
  * @returns {{permutation: Uint8Array, orientation: Uint8Array}}
+ * @throws {UnsolvableError} on stickers no sequence of turns can produce
  */
 export function toCubies(state, goal = CANONICAL_GOAL) {
   const permutation = new Uint8Array(FREE);
   const orientation = new Uint8Array(FREE);
+  let occupied = 0; // bitmask of the pieces placed so far
+  let twists = 0;
   for (let slot = 0; slot < FREE; slot++) {
     const [a, b, c] = SLOTS[slot];
     const found = goal.lookup.get(tripleKey(state[a], state[b], state[c]));
     if (found === undefined) {
       throw new UnsolvableError(`facelets ${SLOTS[slot]} do not hold a corner of this cube`);
     }
-    permutation[slot] = Math.trunc(found / 3);
+    const piece = Math.trunc(found / 3);
+    // Piece FREE belongs to the corner the solve moves never touch, so seeing
+    // it in a free slot is the same fault as seeing any piece twice.
+    if (piece === FREE || (occupied & (1 << piece)) !== 0) {
+      throw new UnsolvableError(`corner piece ${piece} occupies more than one slot`);
+    }
+    occupied |= 1 << piece;
+    permutation[slot] = piece;
     orientation[slot] = found % 3;
+    twists += orientation[slot];
+  }
+  if (twists % 3 !== 0) {
+    throw new UnsolvableError(
+      `corner twists sum to ${twists % 3} mod 3, not 0; no turn can twist a corner in place`,
+    );
   }
   return { permutation, orientation };
 }

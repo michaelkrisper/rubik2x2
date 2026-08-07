@@ -113,19 +113,19 @@ The test suite asserts the two builds produce byte-identical tables.
 
 **What it measured.** On the development machine — an Intel i5-4258U, 2 physical
 cores with hyper-threading, 4 logical CPUs, `powersave` governor — the build
-takes about 175 ms serial and about 105 ms with 4 workers: roughly **1.7×**.
-That is close to the ceiling here. The inner loop is a random-access read of a
-3.7 MB array that does not fit in this chip's 3 MB L3, so it is memory-latency
-bound and two physical cores share one memory path; hyper-threading adds a
-little by hiding latency, not by adding throughput. Expect better scaling on a
-machine with more real cores. Absolute numbers on a laptop drift by a factor of
-two or more with turbo and thermal state, so compare within one run rather than
-across runs.
+takes **153 ms** serial and **85 ms** with 4 workers: **1.8×**. That is close to
+the ceiling here. The inner loop is a random-access read of a 3.7 MB array that
+does not fit in this chip's 3 MB L3, so it is memory-latency bound, and the two
+physical cores share one memory path; hyper-threading buys a little by hiding
+latency, not by adding throughput. Expect better scaling on a machine with more
+real cores.
 
-The benchmark builds one throwaway table before the two measured builds.
-Without that, whichever build ran first would pay for faulting in 18 MB of fresh
-pages and the second would reuse them, showing up as a "speedup" for `table-par`
-that had nothing to do with threads.
+Both builds are timed three times, alternating, and the fastest run of each is
+reported. A single sample is not usable on a laptop: whichever build ran first
+would pay for faulting in 18 MB of fresh pages while the second reused them —
+a "speedup" for `table-par` that had nothing to do with threads — and turbo and
+thermal state move the absolute numbers by a factor of two between neighbouring
+runs anyway. Benchmark on an otherwise idle machine.
 
 Solving a single cube is not parallelised, per the spec: a solve is
 microseconds to milliseconds and its frontiers are small.

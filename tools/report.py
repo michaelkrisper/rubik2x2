@@ -41,14 +41,20 @@ def _entry(report: dict, name: str) -> dict:
 
 
 def _number(value: float) -> str:
-    """Enough digits to be honest, few enough to read."""
+    """Enough digits to be honest, few enough to read.
+
+    Sub-millisecond table lookups and second-long builds share these columns, so
+    the precision has to follow the magnitude rather than being fixed.
+    """
     if value == 0:
         return "0"
     if value >= 100:
         return f"{value:,.0f}"
     if value >= 1:
         return f"{value:.1f}"
-    return f"{value:.3f}".rstrip("0")
+    if value >= 0.01:
+        return f"{value:.3f}".rstrip("0")
+    return f"{value:.2g}"
 
 
 def table_for(reports: list[dict], field: str, unit: str) -> str:
@@ -80,9 +86,9 @@ def speedup(report: dict) -> str:
     serial, parallel = _entry(report, "table"), _entry(report, "table-par")
     if not parallel or not parallel.get("setup_ms"):
         return "—"
-    workers = parallel.get("workers")
     factor = serial["setup_ms"] / parallel["setup_ms"]
-    return f"{factor:.2f}x" + (f" on {workers}" if workers else "")
+    workers = parallel.get("workers")
+    return f"{factor:.2f}×" + (f" ({workers} threads)" if workers else "")
 
 
 def _bytes(count: int | None) -> str:

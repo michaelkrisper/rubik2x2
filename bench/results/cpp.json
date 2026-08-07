@@ -1,0 +1,46 @@
+{
+  "language": "C++",
+  "version": "C++23 (GCC 16.1.1)",
+  "build": "g++ -std=c++23 -O3 -march=native -flto",
+  "algorithms": [
+    {
+      "name": "bfs",
+      "setup_ms": 0.0,
+      "avg_ms": 0.303546,
+      "worst_ms": 6.81127,
+      "peak_mb": 3.88571,
+      "optimal": true
+    },
+    {
+      "name": "ida",
+      "setup_ms": 0.120489,
+      "avg_ms": 0.160929,
+      "worst_ms": 17.6309,
+      "peak_mb": 1.4e-05,
+      "optimal": true
+    },
+    {
+      "name": "table",
+      "setup_ms": 196.469,
+      "avg_ms": 0.000571306,
+      "worst_ms": 0.000291255,
+      "peak_mb": 3.67416,
+      "optimal": true
+    },
+    {
+      "name": "table-par",
+      "setup_ms": 153.072,
+      "avg_ms": 0.000571306,
+      "worst_ms": 0.000291255,
+      "peak_mb": 3.67416,
+      "optimal": true,
+      "workers": 4
+    }
+  ],
+  "build_ms": null,
+  "artifact_bytes": 262664,
+  "source_files": 9,
+  "source_lines": 1339,
+  "test_files": 8,
+  "test_lines": 491
+}

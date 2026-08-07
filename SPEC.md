@@ -227,9 +227,12 @@ Each implementation provides an executable supporting:
 ```
 <prog> solve <state> [--algorithm bfs|ida|table]    # default bfs; prints the moves only
 <prog> scramble [-n N] [--seed S]                   # prints a state string
-<prog> table                                        # builds the table, prints the histogram
+<prog> table [--workers N]                          # builds the table, prints the histogram
 <prog> bench [--json] [--scrambles FILE] [-n N]     # benchmark
 ```
+
+`--workers` defaults to one per online CPU. Unsolvable input exits non-zero with
+a message on stderr.
 
 `solve` prints nothing but the move sequence on stdout, so it pipes.
 
@@ -248,6 +251,13 @@ For each of the three algorithms measure:
 - `optimal` — whether all solution lengths match the table's distances
 
 Repeat fast algorithms enough times to measure them meaningfully.
+
+**Measure `table` and `table-par` setup as the best of at least three
+alternating samples.** Timed once each in sequence, whichever runs first pays to
+fault in ~18 MB of fresh pages and the second inherits warm pages for free — an
+artifact worth roughly 1.5× that points the same way in every language, which
+would make the parallel-speedup column look uniformly better than reality.
+Alternate them and take the best of each.
 
 ### Parallelism
 

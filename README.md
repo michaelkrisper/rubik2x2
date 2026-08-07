@@ -10,7 +10,7 @@ Every solver here returns a *shortest* solution, never merely a working one.
 |---|---|---|
 | [`c/`](c/) | C23 | gcc, pthreads |
 | [`cpp/`](cpp/) | C++23 | g++, `std::jthread` |
-| [`csharp/`](csharp/) | .NET 10 | `Parallel.For` |
+| [`csharp/`](csharp/) | .NET 10 | threads around a `Barrier` |
 | [`go/`](go/) | Go 1.26 | goroutines |
 | [`javascript/`](javascript/) | Node 24 | `worker_threads` |
 | [`python/`](python/) | Python 3.14 | reference implementation |
@@ -88,17 +88,36 @@ _Not yet measured. Run `python3 tools/measure.py`._
 
 Three things hold in every language:
 
-- **The table only pays off above its break-even.** Below it, building costs
-  more than it saves. Per-solve figures alone would hide this completely, which
-  is exactly why setup time is measured and reported next to them.
-- **IDA\* is dominated everywhere.** Not a flaw in Korf's method but a mismatch:
-  pattern databases pay off when a puzzle has more pieces than you can afford to
-  track and you keep only some. A pocket cube is nothing *but* the pieces the
-  databases already cover, so both bounds stop at distance 8 while real positions
-  reach 14 — far too loose to prune.
-- **The worst case separates the algorithms more than the average does.** Table
-  lookup is flat whatever you throw at it; IDA\* degrades by two orders of
-  magnitude on hard positions. An average alone would understate that badly.
+- **The table only pays off above its break-even.** Below it, building costs more
+  than it saves. Per-solve figures alone would hide this completely, which is
+  exactly why setup time is measured and reported next to them.
+- **The worst case separates the algorithms far more than the average does.**
+  Table lookup is flat whatever you throw at it; IDA\* degrades by one to two
+  orders of magnitude on hard positions. An average alone understates that badly,
+  and tail latency is usually what you actually feel.
+- **IDA\*'s heuristic is too weak here, in every language.** Not a flaw in Korf's
+  method but a mismatch: pattern databases pay off when a puzzle has more pieces
+  than you can afford to track and you keep only some. A pocket cube is nothing
+  *but* the pieces the databases already cover, so both bounds stop at distance 8
+  while real positions reach 14 — far too loose to prune well.
+
+And one thing that does **not** hold everywhere, which is the reason for running
+this in six languages rather than reasoning about it in one:
+
+> **Whether IDA\* or bidirectional BFS is faster on average depends on the
+> language.** In Python, BFS wins comfortably. In C, C++, Go and JavaScript,
+> IDA\* wins — sometimes by 2×.
+
+Same algorithms, same inputs, opposite ranking. The reason is what each language
+makes expensive. Bidirectional BFS lives or dies on a hash map holding tens of
+thousands of visited states; IDA\* is a recursive descent over two flat arrays
+and allocates nothing. In CPython the map operations run at C speed while every
+recursive call is interpreted, so BFS wins. Once the interpreter overhead is
+gone, the allocation and hashing dominate instead and the ranking inverts.
+
+Worth remembering before porting a benchmark result across a language boundary —
+IDA\* still loses badly on the worst case everywhere, so the average would have
+been a misleading thing to port either way.
 
 ### Does threading help?
 

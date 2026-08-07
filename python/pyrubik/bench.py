@@ -56,6 +56,22 @@ def _measure(function: Callable[[], object], repeats: int = 1) -> float:
     return (time.perf_counter() - started) / repeats * 1000
 
 
+def _best_of_alternating(
+    first: Callable[[], object], second: Callable[[], object], rounds: int = 3
+) -> tuple[float, float]:
+    """Time two builds fairly, in milliseconds.
+
+    Run once each in sequence and whichever goes first pays to fault in ~18 MB of
+    fresh pages while the second inherits them warm -- worth about 1.5x, always
+    in the same direction. Alternating and keeping the best of each cancels it.
+    """
+    best = [float("inf"), float("inf")]
+    for _ in range(rounds):
+        for index, build in enumerate((first, second)):
+            best[index] = min(best[index], _measure(build))
+    return best[0], best[1]
+
+
 def _peak_megabytes(function: Callable[[], object]) -> float:
     tracemalloc.start()
     function()
@@ -112,14 +128,14 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
         ),
     ]
 
-    table_setup = _measure(DistanceTable.build)
-    table = DistanceTable.build()
-    results.append(
-        _evaluate("table", table.solve, table_setup, states, hardest, reference, 20)
+    workers = os.process_cpu_count() or 1
+    serial_setup, parallel_setup = _best_of_alternating(
+        DistanceTable.build, lambda: DistanceTable.build_parallel(workers)
     )
 
-    workers = os.process_cpu_count() or 1
-    parallel_setup = _measure(lambda: DistanceTable.build_parallel(workers))
+    table = DistanceTable.build()
+    results.append(_evaluate("table", table.solve, serial_setup, states, hardest, reference, 20))
+    # Only the build is parallelised, so the per-solve figures are the same code.
     results.append(
         _evaluate(
             "table-par", table.solve, parallel_setup, states, hardest, reference, 20, workers

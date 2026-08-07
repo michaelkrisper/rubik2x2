@@ -21,7 +21,20 @@ target/
 # C#
 bin/
 obj/
+publish/
 
 # Editors
 .idea/
 .vscode/
+
+# Build output per implementation
+publish/
+c/rubik2x2
+c/rubik2x2_tests
+c/build/
+cpp/rubik2x2
+cpp/rubik2x2_tests
+cpp/build/
+go/rubik2x2
+node_modules/
+bench/results/

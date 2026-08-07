@@ -137,6 +137,30 @@ against the model, buys clarity where you read and speed where it runs. And no
 module holds mutable global state: a `DistanceTable` is an object its caller
 owns, which is why the tests need no reset hooks.
 
+## Does threading help?
+
+No — and the measurement is worth keeping. The distance-table build is the only
+part worth parallelising: 22 million edges, level-synchronous, so each level's
+frontier splits cleanly across workers. Races on the shared visited array are
+benign, since two workers reaching the same state write the same value.
+
+Measured on 4 cores, building the full table:
+
+| Interpreter | serial | 4 threads | speedup |
+|---|---|---|---|
+| CPython 3.14 (GIL) | 7.45 s | 9.45 s | 0.79× |
+| CPython 3.14t (free-threaded) | 9.38 s | 15.99 s | 0.59× |
+
+Under the GIL this is expected: the inner loop is pure bytecode, so threads take
+turns and only add handover cost. The free-threaded result is the interesting
+one — removing the GIL did not help. That build starts 26% slower single-threaded,
+and the shared `bytearray` that every worker writes into turns into contention
+rather than parallelism. Free-threading pays off for work that is coarse-grained
+and mostly independent; this loop is neither.
+
+The compiled implementations in this repository do get real speedup from the
+same decomposition, which is the point of comparing them.
+
 ## Development
 
 ```sh

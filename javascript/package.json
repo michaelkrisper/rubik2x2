@@ -1,0 +1,25 @@
+{
+  "name": "rubik2x2",
+  "version": "1.0.0",
+  "description": "Optimal 2x2x2 Rubik's Cube (pocket cube) solver: bidirectional BFS, IDA* with pattern databases, and God's algorithm.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "rubik2x2": "./src/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "bench": "node src/cli.js bench",
+    "table": "node src/cli.js table"
+  }
+}

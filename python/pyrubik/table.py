@@ -18,10 +18,12 @@ code that produced it. Building costs one exhaustive breadth-first search over
 :class:`BackgroundTable` moves that cost off the calling thread.
 """
 
+import os
 from array import array
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from itertools import repeat
 from typing import Self
 
 from . import coords
@@ -116,6 +118,64 @@ def _build_numpy(progress: Progress | None) -> bytearray:
     return bytearray(distances.tobytes())
 
 
+def _expand_slice(
+    level: Sequence[int], distances: bytearray, marker: int, tables
+) -> list[int]:
+    """Expand part of one frontier level. Safe to run concurrently.
+
+    Two workers can reach the same state at once and both claim it. That costs a
+    duplicate in the next frontier -- the state gets expanded twice, finding
+    nothing new the second time -- but never a wrong distance, because both
+    write the same marker. Guarding it would cost more than the duplicates do.
+    """
+    width = coords.N_ORIENTATIONS
+    found: list[int] = []
+    append = found.append
+    for node in level:
+        quotient, remainder = divmod(node, width)
+        for _, permutation, orientation in tables:
+            child = permutation[quotient] + orientation[remainder]
+            if not distances[child]:
+                distances[child] = marker
+                append(child)
+    return found
+
+
+def _build_threaded(progress: Progress | None, workers: int) -> bytearray:
+    """The same breadth-first search, one thread per slice of each level.
+
+    Whether this helps depends entirely on the interpreter. Under the standard
+    GIL build it cannot: the inner loop is pure bytecode, so the threads take
+    turns. On a free-threaded build (``python3.14t``) they genuinely run at once.
+    Either way the answer is identical -- only the clock differs.
+    """
+    tables = coords.wide_tables()
+    distances = bytearray(coords.N_STATES)
+    distances[coords.SOLVED_INDEX] = 1
+    level: list[int] = [coords.SOLVED_INDEX]
+    depth = 0
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pyrubik-bfs") as pool:
+        while level:
+            if progress is not None:
+                progress(depth, len(level))
+            depth += 1
+            marker = depth + 1
+            if len(level) < workers * 64:  # too small to be worth splitting
+                level = _expand_slice(level, distances, marker, tables)
+                continue
+            size = -(-len(level) // workers)  # ceiling division
+            slices = [level[start:start + size] for start in range(0, len(level), size)]
+            level = [
+                child
+                for part in pool.map(_expand_slice, slices,
+                                     repeat(distances), repeat(marker), repeat(tables))
+                for child in part
+            ]
+
+    return distances
+
+
 @dataclass(frozen=True, slots=True)
 class DistanceTable:
     """Distance-to-solved for all 3,674,160 states, stored as ``distance + 1``.
@@ -136,6 +196,12 @@ class DistanceTable:
         if pure or numpy is None:
             return cls(_build_python(progress), "python")
         return cls(_build_numpy(progress), "numpy")
+
+    @classmethod
+    def build_parallel(cls, workers: int | None = None, progress: Progress | None = None) -> Self:
+        """Build with threads. See :func:`_build_threaded` for what that is worth."""
+        workers = workers or (os.process_cpu_count() or 1)
+        return cls(_build_threaded(progress, workers), f"threads({workers})")
 
     def __len__(self) -> int:
         return len(self.distances)

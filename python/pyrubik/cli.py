@@ -6,6 +6,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import bench, coords, cube
 from .cube import Moves, State, UnsolvableError
@@ -155,8 +156,10 @@ def build_parser() -> argparse.ArgumentParser:
     builder = subcommands.add_parser("table", help="build the distance table and describe it")
     builder.add_argument("--pure", action="store_true", help="skip the numpy fast path")
 
-    marks = subcommands.add_parser("bench", help="compare the three solvers")
-    marks.add_argument("-n", "--samples", type=int, default=200)
+    marks = subcommands.add_parser("bench", help="compare the solvers")
+    marks.add_argument("-n", "--samples", type=int, help="use only the first N scrambles")
+    marks.add_argument("--json", action="store_true", help="machine-readable report only")
+    marks.add_argument("--scrambles", type=Path, help="scramble file (one state per line)")
 
     return parser
 
@@ -204,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         case "table":
             return _table_command(args.pure)
         case "bench":
-            bench.run(args.samples)
+            bench.run(args.samples, as_json_only=args.json, path=args.scrambles)
             return 0
         case "scramble":
             print(cube.to_string(cube.scramble(cube.SOLVED, args.moves, random.Random(args.seed))))

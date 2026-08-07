@@ -13,10 +13,11 @@ def test_every_algorithm_has_a_description():
     assert all(algorithm.description for algorithm in Algorithm)
 
 
-def test_every_algorithm_has_benchmark_setup():
-    from pyrubik.bench import SETUP
+def test_every_algorithm_can_be_made():
+    from pyrubik.table import DistanceTable
 
-    assert set(SETUP) == set(Algorithm)
+    stub = DistanceTable(bytearray(1))
+    assert all(callable(solvers.make(algorithm, stub)) for algorithm in Algorithm)
 
 
 def test_table_algorithm_requires_a_table():

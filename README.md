@@ -6,11 +6,18 @@ language-level differences can be told apart.
 
 Every solver here returns a *shortest* solution, never merely a working one.
 
-| Implementation | Status |
-|---|---|
-| [`python/`](python/) | complete — library, CLI, benchmark, 250 tests |
-| `csharp/` | planned |
-| `rust/` | planned |
+| Implementation | | |
+|---|---|---|
+| [`c/`](c/) | C23 | gcc, pthreads |
+| [`cpp/`](cpp/) | C++23 | g++, `std::jthread` |
+| [`csharp/`](csharp/) | .NET 10 | `Parallel.For` |
+| [`go/`](go/) | Go 1.26 | goroutines |
+| [`javascript/`](javascript/) | Node 24 | `worker_threads` |
+| [`python/`](python/) | Python 3.14 | reference implementation |
+
+Each is written idiomatically for its language rather than transliterated, and
+all of them satisfy the same contract in [SPEC.md](SPEC.md) — same move tables,
+same encoding, same three algorithms, same benchmark inputs and output format.
 
 ---
 
@@ -60,37 +67,51 @@ exactly one neighbour is *d−1* moves out — step to it and repeat. Optimal by
 construction, constant time in difficulty. This is the classic 1993 result for
 the 2x2x2.
 
-## Measured (Python 3.14, one core)
+## Results
 
-```
-algorithm   setup ms    avg ms   worst ms   peak MB  optimal
-------------------------------------------------------------
-bfs             0.0     3.099     44.825       9.4      yes
-ida             3.5    11.413   1238.035       0.0      yes
-table         846.4     0.051      0.058       0.0      yes
+All implementations solve the same 200 scrambles from
+[`bench/scrambles.txt`](bench/scrambles.txt), measured one at a time on the same
+machine so nothing competes for cores. Reproduce with:
 
-total time for a workload (setup + solves), seconds
-algorithm           1          10         100       1,000      10,000
---------------------------------------------------------------------
-bfs             0.00        0.03        0.31        3.10       30.99
-ida             0.01        0.12        1.14       11.42      114.13
-table           0.85        0.85        0.85        0.90        1.35
+```sh
+python3 tools/measure.py            # builds and benchmarks each, sequentially
+python3 tools/report.py             # renders the tables below
 ```
 
-Three things worth reading off that table:
+<!-- BENCHMARK:BEGIN -->
 
-- **The table wins only above ~278 solves.** Below the break-even, building it
-  costs more than it saves. Per-solve numbers alone would hide this entirely,
-  which is why setup is measured too.
-- **IDA\* is dominated everywhere** — 4× slower than plain search on average and
-  28× in the worst case. Not a flaw in Korf's method but a mismatch: pattern
-  databases pay off when a puzzle has more pieces than you can track and you
-  keep only some. A pocket cube is nothing *but* the pieces the databases
-  already cover, so both bounds stop at distance 8 while real positions reach
-  14 — far too loose to prune.
-- **Worst case separates them more than the average.** The table is flat at
-  0.06 ms whatever you throw at it; IDA\* degrades by a factor of a hundred on
-  hard positions.
+_Not yet measured. Run `python3 tools/measure.py`._
+
+<!-- BENCHMARK:END -->
+
+### Reading the numbers
+
+Three things hold in every language:
+
+- **The table only pays off above its break-even.** Below it, building costs
+  more than it saves. Per-solve figures alone would hide this completely, which
+  is exactly why setup time is measured and reported next to them.
+- **IDA\* is dominated everywhere.** Not a flaw in Korf's method but a mismatch:
+  pattern databases pay off when a puzzle has more pieces than you can afford to
+  track and you keep only some. A pocket cube is nothing *but* the pieces the
+  databases already cover, so both bounds stop at distance 8 while real positions
+  reach 14 — far too loose to prune.
+- **The worst case separates the algorithms more than the average does.** Table
+  lookup is flat whatever you throw at it; IDA\* degrades by two orders of
+  magnitude on hard positions. An average alone would understate that badly.
+
+### Does threading help?
+
+Only the table build is worth parallelising — a single solve is milliseconds and
+its frontiers are small. The build is level-synchronous, so each level's frontier
+splits cleanly across workers, and races on the shared visited array are benign:
+two workers reaching the same state write the same value.
+
+The compiled languages get real speedup from that. Python does not, on either
+interpreter — under the GIL the inner loop is pure bytecode so threads merely
+take turns, and on the free-threaded 3.14 build the shared array turns into
+contention instead of parallelism. The per-language READMEs give the numbers and
+the approach each one chose.
 
 ## Correctness
 

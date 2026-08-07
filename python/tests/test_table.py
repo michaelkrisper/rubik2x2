@@ -42,6 +42,11 @@ def test_both_backends_agree(table):
     assert DistanceTable.build(pure=True).distances == table.distances
 
 
+def test_the_threaded_build_agrees(table):
+    """Workers racing for the same state is benign -- they write the same marker."""
+    assert DistanceTable.build_parallel(workers=4).distances == table.distances
+
+
 @pytest.mark.parametrize("seed", range(25))
 def test_table_solutions_are_optimal(table, seed):
     state = cube.scramble(SOLVED, 14, random.Random(seed))

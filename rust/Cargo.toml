@@ -1,0 +1,29 @@
+[package]
+name = "rubik2x2"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Optimal solvers for the 2x2x2 Rubik's Cube (Pocket Cube)"
+license = "MIT"
+publish = false
+
+# std only, by design: the point of the exercise is what the language ships with.
+[dependencies]
+
+[lib]
+name = "rubik2x2"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rubik2x2"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+
+# `cargo test --release` inherits this; the OEIS check is ~20x faster there.
+[profile.test]
+opt-level = 1

@@ -111,8 +111,9 @@ canonical triple rotated left by `twist` matches.
 - **Permutation rank**: any bijection from the 5040 permutations of 0..6 to
   0..5039 works, as long as the identity permutation ranks 0. Lehmer code is the
   obvious choice.
-- **Orientation rank**: `sum(twist[i] * 3^i for i in 0..5)`; slot 6's twist is
-  recovered as `(-sum) mod 3`.
+- **Orientation rank**: `twist[0] + 3*twist[1] + ... + 3^5*twist[5]` — six terms,
+  slots 0 to 5, giving 3⁶ = 729 values. Slot 6's twist is not stored; it is
+  recovered as `(-(twist[0] + ... + twist[5])) mod 3`.
 
 ### Goal orientation
 
@@ -247,7 +248,13 @@ For each of the three algorithms measure:
 - `setup_ms` — one-time precomputation before the first solve (0 for bfs)
 - `avg_ms` — mean wall time per solve over all scrambles
 - `worst_ms` — wall time solving the antipodal position
-- `peak_mb` — peak additional memory held while solving, best effort
+- `peak_mb` — high-water mark of memory live from the end of setup onwards, minus
+  what was live before setup. Retained precomputation counts, so `table` shows
+  its ~3.7 MB. Measure it for real where the language allows (an allocator hook,
+  `tracemalloc`, an allocation counter); resident-set deltas do not work, since
+  allocators do not return freed pages and every algorithm after the first reads
+  as zero. Say in the implementation's README how it was measured — these figures
+  compare within a language far better than across languages.
 - `optimal` — whether all solution lengths match the table's distances
 
 Repeat fast algorithms enough times to measure them meaningfully.

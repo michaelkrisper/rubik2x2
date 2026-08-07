@@ -113,12 +113,31 @@ def test_a_single_twisted_corner_is_rejected():
     the cube would silently encode as a different, legal one -- and the solver
     would hand back moves that solve *that* cube instead.
     """
-    broken = bytearray(SOLVED)
-    slot = coords.SLOTS[0]
-    first, second, third = (broken[facelet] for facelet in slot)
-    broken[slot[0]], broken[slot[1]], broken[slot[2]] = second, third, first
     with pytest.raises(UnsolvableError, match="sum to a multiple of three"):
-        coords.encode(bytes(broken))
+        coords.encode(_twist_in_place(SOLVED, 0))
+
+
+def _twist_in_place(state: bytes, slot_index: int) -> bytes:
+    """Rotate one corner's three stickers without moving the piece."""
+    twisted = bytearray(state)
+    slot = coords.SLOTS[slot_index]
+    first, second, third = (twisted[facelet] for facelet in slot)
+    twisted[slot[0]], twisted[slot[1]], twisted[slot[2]] = second, third, first
+    return bytes(twisted)
+
+
+def test_three_corners_twisted_the_same_way_stay_legal():
+    """Guards the twist check against over-rejecting.
+
+    Three corners twisted alike sum to 0 mod 3, so this cube *is* reachable. A
+    check that simply refused any twist would pass the test above and fail here.
+    """
+    state = SOLVED
+    for slot_index in (0, 1, 2):
+        state = _twist_in_place(state, slot_index)
+    index = coords.encode(state)
+    assert 0 <= index < coords.N_STATES
+    assert index != coords.SOLVED_INDEX
 
 
 def test_a_duplicated_piece_is_rejected():

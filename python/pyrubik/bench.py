@@ -128,9 +128,15 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
         ),
     ]
 
+    # Both table entries use the pure-Python build. Timing the numpy path
+    # against threaded Python would compare a C extension with interpreted code
+    # and call the difference "parallelism"; and against the other languages in
+    # this repository, numpy's number measures C, not Python. See as_json for
+    # where the numpy figure is reported instead.
     workers = os.process_cpu_count() or 1
     serial_setup, parallel_setup = _best_of_alternating(
-        DistanceTable.build, lambda: DistanceTable.build_parallel(workers)
+        lambda: DistanceTable.build(pure=True),
+        lambda: DistanceTable.build_parallel(workers),
     )
 
     table = DistanceTable.build()
@@ -147,19 +153,21 @@ def measure_all(states: Sequence[State]) -> list[Measurement]:
 def as_json(results: Sequence[Measurement]) -> str:
     """The machine-readable report tools/report.py aggregates."""
     gil = "GIL" if getattr(sys, "_is_gil_enabled", lambda: True)() else "free-threaded"
-    return json.dumps(
-        {
-            "language": "Python",
-            "version": platform.python_version(),
-            "build": f"{platform.python_implementation()}, {gil}"
-            + (", numpy table build" if numpy is not None else ", pure Python table build"),
-            "algorithms": [
-                {key: value for key, value in asdict(result).items() if value is not None}
-                for result in results
-            ],
-        },
-        indent=2,
-    )
+    build = f"{platform.python_implementation()} {platform.python_version()}, {gil}, pure Python"
+    report = {
+        "language": "Python",
+        "version": platform.python_version(),
+        "build": build,
+        "algorithms": [
+            {key: value for key, value in asdict(result).items() if value is not None}
+            for result in results
+        ],
+    }
+    if numpy is not None:
+        # Reported beside the table rather than as it: numpy builds the same
+        # table in compiled code, so the number belongs to C, not to Python.
+        report["note_numpy_table_ms"] = round(_measure(DistanceTable.build), 1)
+    return json.dumps(report, indent=2)
 
 
 def _break_even(fast: Measurement, slow: Measurement) -> int | None:

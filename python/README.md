@@ -181,10 +181,8 @@ since `dict`, `bytearray` and the interpreter itself are all C too, and a
 JavaScript `Uint32Array` is C++ inside V8. The pure-Python figure is reported
 next to it (`note_pure_python_table_ms`) so the interpreter's cost stays visible.
 
-It also changes the threading answer. Pure-Python threads cannot help at all —
-see below — but numpy releases the GIL inside its ufuncs, so splitting each
-breadth-first level across workers gives a real **2.3× on 4 threads** (984 ms →
-428 ms), the largest parallel speedup of any implementation here.
+The choice also decides the threading question above: only the numpy build can
+use more than one core.
 
 ## Why the optimizations that won everywhere else lose here
 

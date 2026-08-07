@@ -150,6 +150,43 @@ Two things that turned out to matter more than the synchronisation scheme:
   about a fifth of the build time on its own — the same 22 million edges, one
   less indirection each.
 
+## musl vs glibc
+
+Worth measuring rather than assuming, because the usual expectation — "musl is
+leaner, so it must be faster" — turns out to be true for exactly one thing and
+false for another.
+
+```sh
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl
+```
+
+| | glibc | musl | |
+|---|---|---|---|
+| resident at startup | 2,280 KB | **408 KB** | **5.6× less** |
+| startup | 2.73 ms | **2.45 ms** | 10% faster |
+| binary on disk | 612 KB | 731 KB | 19% larger |
+| bfs, ida, table build | — | — | identical within noise |
+| threaded table build | **106 ms** | 127 ms | musl ~18% *slower* |
+
+Two things are going on. The memory and startup wins come from static linking:
+nothing to map, no dynamic loader to run, and none of glibc's locale and malloc
+arena machinery to fault in. That 5.6× RSS reduction is real and perfectly
+repeatable — 408 KB on every single run.
+
+The loss is in `table-par`. musl's allocator and thread primitives are written
+for size and simplicity, not throughput, and the parallel build hammers both.
+The single-threaded compute paths are untouched by any of this, which is why
+they measure identical: they are just arithmetic over arrays that were allocated
+once.
+
+So the honest answer is that musl is not "faster" — it is *smaller*, and small
+happens to buy startup. For this repository the glibc build stays the default,
+because the benchmark compares against six other dynamically-linked runtimes and
+because the threaded build is the one place performance is actually left on the
+table. For a container image or a short-lived CLI, the musl build would be the
+better choice on its own merits.
+
 ## Benchmark
 
 `bench` follows the protocol in `../SPEC.md`: the 200 shared scrambles from

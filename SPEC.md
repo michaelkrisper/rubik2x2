@@ -102,6 +102,12 @@ slot 6  left-down-back    18 12 10
 slot 7  right-down-back   23 11 13   <- fixed, not part of the index
 ```
 
+Slot 7's facelets appear here in the same rotational order as every other slot,
+which is what reading its piece requires. Elsewhere the same three facelets are
+referred to as `11, 13, 23` — ascending, because there they are only a key for
+looking up which solved orientation a cube is in, and order is irrelevant. Same
+corner, two uses.
+
 A piece is identified by the colour triple its slot shows on a **solved** cube.
 For a state, read the three colours at a slot and find the (piece, twist) whose
 canonical triple rotated left by `twist` matches.
@@ -227,7 +233,7 @@ Each implementation provides an executable supporting:
 
 ```
 <prog> solve <state> [--algorithm bfs|ida|table]    # default bfs; prints the moves only
-<prog> scramble [-n N] [--seed S]                   # prints a state string
+<prog> scramble [-n N] [--seed S]                   # default n=8; prints a state string
 <prog> table [--workers N]                          # builds the table, prints the histogram
 <prog> bench [--json] [--scrambles FILE] [-n N]     # benchmark
 ```

@@ -1,0 +1,112 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+# Every job asserts the same thing in a different language: that building the
+# distance table reproduces OEIS A079762. If a move table or an encoding is
+# wrong anywhere, that check is what catches it.
+jobs:
+  c:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: c } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: make
+      - run: make test
+      - run: ./rubik2x2 table
+      - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
+
+  cpp:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: cpp } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GCC 14
+        run: sudo apt-get update && sudo apt-get install -y g++-14
+      - run: make CXX=g++-14
+      - run: make CXX=g++-14 test
+      - run: ./rubik2x2 table
+      - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: rust } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --release --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - run: ./target/release/rubik2x2 table
+      - run: ./target/release/rubik2x2 bench --json --scrambles ../bench/scrambles.txt
+
+  go:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: go } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.24" }
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build -o rubik2x2 ./cmd/rubik2x2
+      - run: ./rubik2x2 table
+      - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
+
+  csharp:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: csharp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - run: dotnet build -c Release
+      - run: dotnet test -c Release
+      - run: dotnet publish -c Release -o publish
+      - run: ./publish/rubik2x2 table
+      - run: ./publish/rubik2x2 bench --json --scrambles ../bench/scrambles.txt
+
+  javascript:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: javascript } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - run: node --test
+      - run: node src/cli.js table
+      - run: node src/cli.js bench --json --scrambles ../bench/scrambles.txt
+
+  python:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: python } }
+    strategy:
+      fail-fast: false
+      matrix:
+        # The pure-Python table build must keep working without numpy.
+        extras: ["", "numpy"]
+    name: python (${{ matrix.extras == '' && 'no numpy' || 'with numpy' }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.14" }
+      - run: python -m pip install --upgrade pip && pip install pytest ruff ${{ matrix.extras }}
+      - run: ruff check .
+      - run: pytest
+      - run: pytest -m slow
+      - run: python -m pyrubik table
+
+  agree:
+    # The point of six implementations: they must give the same answers.
+    needs: [c, cpp, rust, go, csharp, javascript, python]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All implementations built, tested and reproduced OEIS A079762."

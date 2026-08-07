@@ -161,6 +161,50 @@ and mostly independent; this loop is neither.
 The compiled implementations in this repository do get real speedup from the
 same decomposition, which is the point of comparing them.
 
+## Why the optimizations that won everywhere else lose here
+
+Two changes made the compiled implementations in this repository dramatically
+faster. Both were tried here, measured, and rejected — which is more interesting
+than if they had worked, because the reason is the same one every time.
+
+**Replacing the frontier dictionaries with a flat array.** A cube state is a
+dense integer below 3,674,160, so the visited set can be an array subscripted by
+the state itself, with a packed generation stamp instead of clearing 14.7 MB.
+That is worth 4.7× in C#, 4.4× in Go and 2.1× in Rust. In CPython:
+
+| | avg per solve | |
+|---|---|---|
+| dictionaries and path strings (what ships) | **2.88 ms** | — |
+| dictionaries, packed parent crumbs | 3.54 ms | 23% slower |
+| flat `list` + generation stamp | 6.90 ms | 2.4× slower |
+| flat `array('I')` + generation stamp | 7.54 ms | **2.6× slower** |
+
+**Unrolling the six-move inner loop** — worth about a fifth of the table build —
+makes the search 1.6–2× slower (3.1 ms → 5.1 ms).
+
+The reason is the same both times, and it inverts the usual intuition:
+
+> In CPython, a dictionary lookup with an integer key is **one bytecode
+> instruction dispatching into C**. Hashing a small int is the identity function
+> and the probe loop is compiled. The bit-packing that replaces it — mask, shift,
+> compare, or, subscript — is **ten interpreted bytecodes and a fresh integer
+> object for every intermediate value**.
+
+So the flat array removes an operation that was already free and adds a dozen
+that are not. In a compiled language the arithmetic costs nothing (registers,
+single instructions) and the hash is the only real work; under an interpreter the
+ratio is exactly reversed. Unrolling loses for the same reason: it trades cheap
+loop dispatch for tuple allocation.
+
+The general rule this repository keeps demonstrating: **optimizing CPython means
+moving work *into* C, never writing more Python to avoid a C operation.** The
+same logic explains why `numpy` builds the distance table 5× faster and why
+threads do not help at all — the interpreter, not the algorithm, is the floor.
+
+The remaining profile is nothing but that floor: 65% of a solve is the search
+loop's own bytecode, with `list.append` and `divmod` making up most of the rest.
+There is no structural win left short of leaving Python.
+
 ## Development
 
 ```sh

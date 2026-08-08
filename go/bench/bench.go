@@ -217,16 +217,19 @@ func evaluate(name string, setupMS float64, setup func() solver.Solver,
 		PeakMB: peak, Optimal: optimal}
 }
 
-func round(value float64, places int) float64 {
-	scale := 1.0
-	for range places {
-		scale *= 10
+// significant rounds to n significant digits rather than n decimal places.
+//
+// Fixed decimals are wrong for this report: the figures it carries span seven
+// orders of magnitude, from a sub-microsecond table lookup to a multi-second
+// table build. Three decimal places flattened every lookup faster than 0.5 us
+// to zero, which on a quick machine is all of them.
+func significant(value float64, digits int) float64 {
+	if value == 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return value
 	}
-	rounded := float64(int64(value*scale + 0.5))
-	if value < 0 {
-		rounded = float64(int64(value*scale - 0.5))
-	}
-	return rounded / scale
+	magnitude := math.Ceil(math.Log10(math.Abs(value)))
+	scale := math.Pow(10, float64(digits)-magnitude)
+	return math.Round(value*scale) / scale
 }
 
 // Run measures every algorithm and writes the report to out.
@@ -289,10 +292,10 @@ func Run(out io.Writer, opts Options) error {
 	results = append(results, parallel)
 
 	for i := range results {
-		results[i].SetupMS = round(results[i].SetupMS, 3)
-		results[i].AvgMS = round(results[i].AvgMS, 3)
-		results[i].WorstMS = round(results[i].WorstMS, 3)
-		results[i].PeakMB = round(results[i].PeakMB, 3)
+		results[i].SetupMS = significant(results[i].SetupMS, 4)
+		results[i].AvgMS = significant(results[i].AvgMS, 4)
+		results[i].WorstMS = significant(results[i].WorstMS, 4)
+		results[i].PeakMB = significant(results[i].PeakMB, 4)
 	}
 
 	if opts.JSON {

@@ -53,6 +53,17 @@ class Target:
 
 TARGETS = [
     Target(
+        name="asm",
+        directory="asm",
+        clean=["make", "clean"],
+        build=["make"],
+        artifact="rubik2x2",
+        run=["./rubik2x2"],
+        source_globs=("src/*.s", "src/*.inc"),
+        test_globs=("tests/*.c", "tests/*.s", "tests/*.h"),
+        comment_prefixes=("#", "//", "/*", "*"),
+    ),
+    Target(
         name="c",
         directory="c",
         clean=["make", "clean"],

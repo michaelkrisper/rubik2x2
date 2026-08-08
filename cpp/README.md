@@ -201,6 +201,36 @@ so IDA\*'s two pattern databases (5,769 bytes, held in automatic storage as
 `std::array`) do not appear in its figure; and allocator overhead is not
 counted, only the sizes the program asked for.
 
+## The optimization pass
+
+Two changes, both measured on an idle machine and both kept because they paid.
+
+**The frontier hash maps became one flat array** (`src/bfs.cpp`). A cube state is
+already a dense index below 3,674,160, so hashing it to look it up was pure
+overhead. The visited set is now one `uint32_t` per state packing the arriving
+move, the parent, which frontier claimed it and a generation stamp — so a solve
+bumps a counter instead of clearing 14.7 MB, and each edge costs one array read
+and one write rather than a lookup, a second lookup and an insert.
+
+| | before | after | |
+|---|---|---|---|
+| bfs, average | 0.302 ms | **0.077 ms** | 3.9× |
+| bfs, worst case | 6.6 ms | **1.0 ms** | 6.6× |
+
+The same change is in every other compiled implementation here, and it is the
+single largest win the project found: 4.7× in C#, 4.5× in JavaScript, 4.4× in Go,
+2.7× in C, 2.1× in Rust.
+
+**Prefetching the frontier** (`include/rubik/prefetch.hpp`). Both hot loops walk
+a frontier and touch one random word of a multi-megabyte array per edge. That
+array does not fit in this machine's 3 MiB L3, so nearly every touch misses and
+the loop is bound by memory latency rather than by arithmetic. Naming the
+addresses a few entries ahead lets those misses overlap instead of stalling one
+at a time; it also took the table build from 194 ms to 140 ms.
+
+That both wins came from memory behaviour rather than from instruction count is
+the theme of the whole comparison — see the root README.
+
 ## Benchmark
 
 ```sh

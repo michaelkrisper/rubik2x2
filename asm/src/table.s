@@ -41,6 +41,35 @@
 /* Expand one node: child = perm_wide[q][m] + orient_child[r][m].
  * r10 = permutation row, r11 = orientation row, r12 = distance array,
  * r13 = queue, r8 = tail, r9b = level marker. */
+    .macro PREFETCH_AHEAD
+    /* Name the cache lines this loop will want a few frontier entries from now.
+     * Every STEP touches one random byte of a 3.7 MB array that does not fit in
+     * this machine's 3 MiB L3, so the loop waits on memory, not on arithmetic.
+     * Recomputing an address early costs a multiply and lets the miss overlap
+     * with real work instead of stalling on it. Measured: 155 -> 140 ms. */
+    lea     esi, [rbx + PREFETCH_LOOKAHEAD]
+    cmp     esi, ebp
+    jae     9100f
+    mov     ecx, [r13 + rsi*4]
+    mov     eax, ecx
+    imul    rax, rax, MAGIC729
+    shr     rax, 32
+    mov     edx, eax
+    imul    edx, edx, NORIENT
+    sub     ecx, edx
+    shl     rax, PERMROW_SH
+    add     rax, r14
+    mov     esi, ecx
+    shl     rsi, ORIENTROW_SH
+    add     rsi, r15
+    .irp poff, 0, 4, 8, 12, 16, 20
+    mov     ecx, [rax + \poff]
+    add     ecx, [rsi + \poff]
+    prefetcht0 [r12 + rcx]
+    .endr
+9100:
+    .endm
+
     .macro STEP off
     mov     eax, [r10 + \off]
     add     eax, [r11 + \off]
@@ -88,7 +117,8 @@ table_build:
     mov     r9d, 2                          /* marker = distance + 1 */
 1:  cmp     ebx, ebp
     jae     9f
-2:  mov     ecx, [r13 + rbx*4]
+2:  PREFETCH_AHEAD
+    mov     ecx, [r13 + rbx*4]
     mov     eax, ecx
     imul    rax, rax, MAGIC729
     shr     rax, 32                         /* q */

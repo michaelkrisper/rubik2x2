@@ -59,3 +59,4 @@
     .equ MARK_GENMASK,  0xFC000000
     .equ MARK_GENSH,    26
     .equ MARK_MAXGEN,   62
+.equ PREFETCH_LOOKAHEAD, 8

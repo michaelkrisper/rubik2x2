@@ -5,13 +5,20 @@
 #   make bench      run the benchmark against bench/scrambles.txt
 #   make clean
 #
-# There is no compiler in this build: `as` assembles, and `gcc` is used only as
-# the linker driver so that the C runtime start-up files and libc come along.
-# No C source of this project is compiled or linked.
+# Nothing that ships is compiled: `as` assembles every line of the program, and
+# `gcc` is used only as the linker driver so that the C runtime start-up files
+# and libc come along.  No C source is compiled into ./rubik2x2.
+#
+# The test runner is the one exception, and it is not part of the program: it
+# is C that calls the assembly routines from outside, so a failing assertion
+# can say what it expected.  The spec asks for the algorithms to be assembly,
+# not the harness.
 
 AS      := as
+CC      := gcc
 LD      := gcc
 ASFLAGS := --64 -I src -g
+CFLAGS  := -std=c17 -O2 -g -Wall -Wextra
 LDFLAGS := -pthread
 LDLIBS  :=
 
@@ -54,6 +61,11 @@ $(BUILD)/version.o: $(BUILD)/version.s
 $(BUILD)/%.o: %.s src/rubik.inc
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) -o $@ $<
+
+# The test runner, and only the test runner, goes through a C compiler.
+$(BUILD)/tests/%.o: tests/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 test: $(TEST)
 	./$(TEST)

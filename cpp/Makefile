@@ -14,14 +14,18 @@ STANDARD := -std=c++23
 # something portable, which CI does: a shared runner is not the target machine,
 # and its CPU can carry feature combinations that trip -Werror.
 ARCH ?= -march=native
+# Which C++ standard library to build against. Empty means the compiler's
+# default. CI passes -stdlib=libc++ for clang, because libstdc++ hides
+# <expected> unless __cpp_concepts reports 202002L, which older clang does not.
+STDLIB ?=
 OPTIMISE := -O3 $(ARCH) -flto
 WARNINGS := -Wall -Wextra -Werror
 
 BUILD_DESCRIPTION := $(CXX) $(STANDARD) $(OPTIMISE)
 
 CPPFLAGS += -Iinclude -MMD -MP -DRUBIK_BUILD_FLAGS='"$(BUILD_DESCRIPTION)"'
-CXXFLAGS += $(STANDARD) $(OPTIMISE) $(WARNINGS) -pthread
-LDFLAGS  += $(STANDARD) $(OPTIMISE) -pthread
+CXXFLAGS += $(STANDARD) $(STDLIB) $(OPTIMISE) $(WARNINGS) -pthread
+LDFLAGS  += $(STANDARD) $(STDLIB) $(OPTIMISE) -pthread
 
 BUILD := build
 LIBRARY_SOURCES := $(filter-out src/main.cpp,$(wildcard src/*.cpp))

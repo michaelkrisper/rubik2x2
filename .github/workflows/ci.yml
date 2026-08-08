@@ -49,10 +49,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # clang needs a libstdc++ recent enough for std::expected, which is
-          # what g++-14 brings along.
-          - { compiler: g++-14, install: g++-14 }
-          - { compiler: clang++, install: clang g++-14 }
+          # clang builds against libc++: libstdc++ hides <expected> unless
+          # __cpp_concepts reports 202002L, which the runner's clang does not.
+          - { compiler: g++-14, install: g++-14, stdlib: '' }
+          - { compiler: clang++, install: clang libc++-dev libc++abi-dev, stdlib: -stdlib=libc++ }
     env:
       ARCH: -march=x86-64-v2
     name: cpp (${{ matrix.compiler }})
@@ -60,8 +60,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.install }}
-      - run: make CXX=${{ matrix.compiler }}
-      - run: make CXX=${{ matrix.compiler }} test
+      - run: make CXX=${{ matrix.compiler }} STDLIB=${{ matrix.stdlib }}
+      - run: make CXX=${{ matrix.compiler }} STDLIB=${{ matrix.stdlib }} test
       - run: ./rubik2x2 table
       - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
 

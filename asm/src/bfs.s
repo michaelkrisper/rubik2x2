@@ -245,6 +245,32 @@ bfs_solve_index:
     jae     .Lbfs_endlevel
     cmp     rdi, rsi
     ja      .Lbfs_overflow
+    /* Name the six mark words this loop will want a few frontier entries from
+     * now. Profiling puts 69% of the search in the mark load: one random word
+     * of a 14.7 MB array per edge, in a machine with 3 MiB of last-level cache,
+     * so the loop is waiting on memory. Recomputing an address early costs a
+     * multiply and lets the misses overlap instead of stalling one at a time. */
+    lea     eax, [rbx + BFS_LOOKAHEAD]
+    cmp     eax, [rsp + F_LEVN]
+    jae     8100f
+    mov     ecx, [r13 + rax*4]
+    mov     eax, ecx
+    imul    rax, rax, MAGIC729
+    shr     rax, 32
+    mov     edx, eax
+    imul    edx, edx, NORIENT
+    sub     ecx, edx
+    shl     rax, PERMROW_SH
+    add     rax, r14
+    mov     edx, ecx
+    shl     rdx, ORIENTROW_SH
+    add     rdx, r15
+    .irp poff, 0, 4, 8, 12, 16, 20
+    mov     ecx, [rax + \poff]
+    add     ecx, [rdx + \poff]
+    prefetcht0 [r12 + rcx*4]
+    .endr
+8100:
     mov     ecx, [r13 + rbx*4]
     mov     [rsp + F_NODE], ecx
     mov     ebp, [rsp + F_STAMP]

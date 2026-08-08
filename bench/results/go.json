@@ -6,22 +6,22 @@
     {
       "name": "bfs",
       "setup_ms": 0,
-      "avg_ms": 0.753,
-      "worst_ms": 11.677,
-      "peak_mb": 2.726,
+      "avg_ms": 0.162,
+      "worst_ms": 2.099,
+      "peak_mb": 15.662,
       "optimal": true
     },
     {
       "name": "ida",
-      "setup_ms": 0.24,
-      "avg_ms": 0.3,
-      "worst_ms": 33.322,
+      "setup_ms": 0.213,
+      "avg_ms": 0.297,
+      "worst_ms": 33.498,
       "peak_mb": 0.006,
       "optimal": true
     },
     {
       "name": "table",
-      "setup_ms": 228.667,
+      "setup_ms": 204.371,
       "avg_ms": 0.001,
       "worst_ms": 0.001,
       "peak_mb": 3.678,
@@ -29,7 +29,7 @@
     },
     {
       "name": "table-par",
-      "setup_ms": 182.129,
+      "setup_ms": 160.663,
       "avg_ms": 0.001,
       "worst_ms": 0.001,
       "peak_mb": 3.678,
@@ -37,12 +37,12 @@
       "workers": 4
     }
   ],
-  "build_ms": 9927.750187001948,
-  "startup_ms": 8.528393998858519,
-  "startup_rss_kb": 2936,
-  "artifact_bytes": 2162850,
-  "source_files": 15,
-  "source_lines": 2221,
-  "test_files": 6,
-  "test_lines": 805
+  "build_ms": 9742.403932999878,
+  "startup_ms": 8.16870600101538,
+  "startup_rss_kb": 2904,
+  "artifact_bytes": 2166946,
+  "source_files": 16,
+  "source_lines": 2331,
+  "test_files": 7,
+  "test_lines": 866
 }

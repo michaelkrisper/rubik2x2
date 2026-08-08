@@ -182,6 +182,15 @@ def _size(target: Target) -> int:
     )
 
 
+def _tool_version(tool: str) -> str | None:
+    """First line of ``tool --version``, trimmed to something table-sized."""
+    if not shutil.which(tool):  # pragma: no cover - depends on the box
+        return None
+    completed = subprocess.run([tool, "--version"], text=True, capture_output=True, check=False)
+    first = completed.stdout.splitlines()[0] if completed.stdout else ""
+    return first.split("(")[0].strip() or None
+
+
 def _run(command: list[str], cwd: Path, capture: bool = False) -> subprocess.CompletedProcess:
     return subprocess.run(command, cwd=cwd, text=True, capture_output=capture, check=False)
 
@@ -256,8 +265,12 @@ def measure(target: Target, skip_build: bool) -> dict | None:
     source_files, source_lines = _count(target, target.source_globs)
     test_files, test_lines = _count(target, target.test_globs)
     if target.name.endswith("-clang"):
-        # The binary reports its language, not which compiler produced it.
+        # The binary reports its language and whatever __VERSION__ says, which
+        # for clang is a GCC-compatibility string ("gcc 4.2.1"). Label the row
+        # by what actually compiled it.
+        version = _tool_version("clang" if target.name.startswith("c-") else "clang++")
         report["language"] = f"{report.get('language', target.name)} (clang)"
+        report["version"] = version or "clang"
         report["build"] = report.get("build", "").replace("GCC", "clang").replace("g++", "clang++")
     report |= {
         "build_ms": build_ms,

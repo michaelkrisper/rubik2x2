@@ -6,22 +6,22 @@
     {
       "name": "bfs",
       "setup_ms": 0,
-      "avg_ms": 0.838,
-      "worst_ms": 16.95,
-      "peak_mb": 6.8,
+      "avg_ms": 0.197,
+      "worst_ms": 2.453,
+      "peak_mb": 15.29,
       "optimal": true
     },
     {
       "name": "ida",
-      "setup_ms": 7.7,
-      "avg_ms": 0.887,
-      "worst_ms": 96.319,
-      "peak_mb": 1.16,
+      "setup_ms": 7.1,
+      "avg_ms": 0.281,
+      "worst_ms": 30.401,
+      "peak_mb": 0.07,
       "optimal": true
     },
     {
       "name": "table",
-      "setup_ms": 360,
+      "setup_ms": 428.1,
       "avg_ms": 0.002,
       "worst_ms": 0.001,
       "peak_mb": 3.68,
@@ -29,7 +29,7 @@
     },
     {
       "name": "table-par",
-      "setup_ms": 466,
+      "setup_ms": 579.5,
       "avg_ms": 0.002,
       "worst_ms": 0.001,
       "peak_mb": 3.68,
@@ -38,11 +38,11 @@
     }
   ],
   "build_ms": null,
-  "startup_ms": 192.2261610015994,
-  "startup_rss_kb": 57592,
-  "artifact_bytes": 134022,
+  "startup_ms": 180.30652600282338,
+  "startup_rss_kb": 57944,
+  "artifact_bytes": 154440,
   "source_files": 11,
-  "source_lines": 1716,
+  "source_lines": 1944,
   "test_files": 6,
   "test_lines": 694
 }

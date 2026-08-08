@@ -108,7 +108,6 @@ MoveTables build_move_tables() {
             to_cubies(turn(identity, solve_moves[position]), solved_pieces).value();
         const Permutation& source = moved.permutation;
         const Orientation& twist = moved.orientation;
-        MoveTable& table = tables[position];
 
         for (std::uint32_t rank = 0; rank < permutation_count; ++rank) {
             const Permutation before = unrank_permutation(static_cast<std::uint16_t>(rank));
@@ -117,8 +116,8 @@ MoveTables build_move_tables() {
                 after[slot] = before[source[slot]];
             }
             const std::uint16_t moved_rank = rank_permutation(after);
-            table.permutation[rank] = moved_rank;
-            table.permutation_wide[rank] = moved_rank * orientation_count;
+            tables.permutation[rank][position] = moved_rank;
+            tables.permutation_wide[rank][position] = moved_rank * orientation_count;
         }
 
         for (std::uint32_t rank = 0; rank < orientation_count; ++rank) {
@@ -127,7 +126,7 @@ MoveTables build_move_tables() {
             for (std::size_t slot = 0; slot < free_slots; ++slot) {
                 after[slot] = static_cast<std::uint8_t>((before[source[slot]] + twist[slot]) % 3);
             }
-            table.orientation[rank] = rank_orientation(after);
+            tables.orientation[rank][position] = rank_orientation(after);
         }
     }
     return tables;

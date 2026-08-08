@@ -190,29 +190,39 @@ inline constexpr Pieces solved_pieces = pieces_of(solved);
 /// Dense index -> sticker state. Inverse of `encode` up to orientation.
 [[nodiscard]] State decode(std::uint32_t index, const Pieces& pieces = solved_pieces);
 
-/// One (permutation table, orientation table) pair per solve move.
+/// The successor tables, subscripted **coordinate first, move second**.
+///
+/// Every search here expands a node by trying all six moves at once, so the six
+/// successors of a coordinate are always wanted together. One table per move
+/// scatters them across six arrays 20 KB apart -- six cache lines, from a
+/// working set too big for L1. Transposed, the same bytes put a coordinate's
+/// whole row of six in 24 bytes, one line. Measured on the reference machine
+/// this is worth about 6% of bidirectional search and 7% of the table build,
+/// for no extra memory: it is the same data, indexed the other way round.
 ///
 /// `permutation_wide` is the permutation table pre-multiplied by the row width,
-/// so a search computes a child as `permutation_wide[q] + orientation[r]` --
-/// one add rather than a multiply and an add, in a loop that runs tens of
+/// so a search computes a child as `permutation_wide[q][m] + orientation[r][m]`
+/// -- one add rather than a multiply and an add, in a loop that runs tens of
 /// millions of times. `permutation` is the same table unscaled, which is what
-/// the IDA* pattern database needs.
-struct MoveTable {
-    std::array<std::uint16_t, permutation_count> permutation;
-    std::array<std::uint32_t, permutation_count> permutation_wide;
-    std::array<std::uint16_t, orientation_count> orientation;
-};
+/// the IDA* pattern databases are subscripted by.
+struct MoveTables {
+    /// One row per coordinate: its successor under each solve move.
+    template <typename Entry, std::size_t Rows>
+    using Rowwise = std::array<std::array<Entry, solve_moves.size()>, Rows>;
 
-using MoveTables = std::array<MoveTable, solve_moves.size()>;
+    Rowwise<std::uint16_t, permutation_count> permutation;
+    Rowwise<std::uint32_t, permutation_count> permutation_wide;
+    Rowwise<std::uint16_t, orientation_count> orientation;
+};
 
 /// Built on first use -- roughly 35k entries, a fraction of a millisecond.
 [[nodiscard]] const MoveTables& move_tables();
 
 /// Apply one solve move (by its index in `solve_moves`) to an encoded state.
 [[nodiscard]] inline std::uint32_t apply(std::uint32_t index, std::size_t move_position) {
-    const MoveTable& table = move_tables()[move_position];
-    return table.permutation_wide[index / orientation_count] +
-           table.orientation[index % orientation_count];
+    const MoveTables& tables = move_tables();
+    return tables.permutation_wide[index / orientation_count][move_position] +
+           tables.orientation[index % orientation_count][move_position];
 }
 
 }  // namespace rubik::coords

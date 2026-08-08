@@ -1,5 +1,7 @@
 #include "rubik/ida.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <format>
 #include <span>
@@ -13,7 +15,7 @@ namespace {
 constexpr std::uint8_t unreached = 0xFF;
 
 /// Exact distance-to-solved within one coordinate, by breadth-first search over
-/// its few thousand nodes.
+/// its few thousand nodes. `successors[node]` is that node's row of six.
 template <std::size_t Size, typename Table>
 std::array<std::uint8_t, Size> project(const Table& successors) {
     std::array<std::uint8_t, Size> distances{};
@@ -24,8 +26,7 @@ std::array<std::uint8_t, Size> project(const Table& successors) {
     for (std::uint8_t depth = 1; !level.empty(); ++depth) {
         std::vector<std::uint16_t> following;
         for (std::uint16_t node : level) {
-            for (const auto& table : successors) {
-                const std::uint16_t child = table[node];
+            for (const auto child : successors[node]) {
                 if (distances[child] == unreached) {
                     distances[child] = depth;
                     following.push_back(child);
@@ -37,31 +38,51 @@ std::array<std::uint8_t, Size> project(const Table& successors) {
     return distances;
 }
 
-/// One depth-first pass of IDA*. Returns true once the goal is inside `limit`.
-bool descend(std::uint32_t index, int depth, int limit, std::vector<char>& path, std::size_t last,
-             const PatternDatabases& databases, const coords::MoveTables& tables) {
-    if (depth + databases.bound(index) > limit) {
-        return false;
-    }
-    if (index == coords::solved_index) {
+/// The path under construction: at most 14 moves, so a fixed array with a
+/// length beats a `std::vector` whose capacity check runs at every node.
+using Path = std::array<char, max_depth>;
+
+/// One depth-first pass of IDA*, carrying the state as its two *coordinates*
+/// rather than as the combined index.
+///
+/// Both move tables and both pattern databases are subscripted by a coordinate,
+/// never by the combined index, so keeping the pair split removes the divide and
+/// the multiply that recombining them would need -- and this loop is the whole
+/// program. `remaining` is `limit - depth`, which turns the bound test into a
+/// comparison against a value already in a register.
+///
+/// Children are bounded and rejected *here*, in the parent, so a node that
+/// cannot fit the limit costs a table lookup rather than a call.
+bool descend(std::uint32_t quotient, std::uint32_t remainder, int remaining, int depth, Path& path,
+             std::size_t last, const PatternDatabases& databases,
+             const coords::MoveTables& tables) {
+    if (quotient == 0 && remainder == 0) {
         return true;
     }
-    const std::uint32_t quotient = index / coords::orientation_count;
-    const std::uint32_t remainder = index % coords::orientation_count;
+    if (remaining == 0) {
+        return false;
+    }
 
-    for (std::size_t move = 0; move < tables.size(); ++move) {
+    const auto& children_quotient = tables.permutation[quotient];
+    const auto& children_remainder = tables.orientation[remainder];
+    for (std::size_t move = 0; move < solve_moves.size(); ++move) {
         // `solve_moves` pairs each turn with its inverse at adjacent indices,
         // so `move ^ 1` is the turn that would undo the previous one.
         if ((move ^ 1u) == last) {
             continue;
         }
-        const std::uint32_t child =
-            tables[move].permutation_wide[quotient] + tables[move].orientation[remainder];
-        path.push_back(to_char(solve_moves[move]));
-        if (descend(child, depth + 1, limit, path, move, databases, tables)) {
+        const std::uint32_t child_quotient = children_quotient[move];
+        const std::uint32_t child_remainder = children_remainder[move];
+        const int bound = std::max<int>(databases.permutation[child_quotient],
+                                        databases.orientation[child_remainder]);
+        if (bound >= remaining) {
+            continue;
+        }
+        path[static_cast<std::size_t>(depth)] = to_char(solve_moves[move]);
+        if (descend(child_quotient, child_remainder, remaining - 1, depth + 1, path, move, databases,
+                    tables)) {
             return true;
         }
-        path.pop_back();
     }
     return false;
 }
@@ -71,15 +92,8 @@ bool descend(std::uint32_t index, int depth, int limit, std::vector<char>& path,
 PatternDatabases PatternDatabases::build() {
     const coords::MoveTables& tables = coords::move_tables();
 
-    std::array<std::span<const std::uint16_t>, solve_moves.size()> permutation_moves{};
-    std::array<std::span<const std::uint16_t>, solve_moves.size()> orientation_moves{};
-    for (std::size_t move = 0; move < tables.size(); ++move) {
-        permutation_moves[move] = tables[move].permutation;
-        orientation_moves[move] = tables[move].orientation;
-    }
-
-    return PatternDatabases{project<coords::permutation_count>(permutation_moves),
-                            project<coords::orientation_count>(orientation_moves)};
+    return PatternDatabases{project<coords::permutation_count>(tables.permutation),
+                            project<coords::orientation_count>(tables.orientation)};
 }
 
 const PatternDatabases& PatternDatabases::shared() {
@@ -105,13 +119,13 @@ Result<Moves> solve_ida(const State& state, const PatternDatabases& databases) {
     }
 
     const coords::MoveTables& tables = coords::move_tables();
+    const std::uint32_t quotient = *start / coords::orientation_count;
+    const std::uint32_t remainder = *start % coords::orientation_count;
 
-    std::vector<char> path;
-    path.reserve(max_depth);
+    Path path{};
     for (int limit = databases.bound(*start); limit <= max_depth; ++limit) {
-        path.clear();
-        if (descend(*start, 0, limit, path, solve_moves.size(), databases, tables)) {
-            return Moves{path.begin(), path.end()};
+        if (descend(quotient, remainder, limit, 0, path, solve_moves.size(), databases, tables)) {
+            return Moves{path.begin(), path.begin() + limit};
         }
     }
 

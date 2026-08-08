@@ -22,4 +22,9 @@ solve_status_t bfs_solve(const coord_tables_t *tables, cube_t state, solution_t 
 /* The same search from an already-encoded index, for callers that have one. */
 solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, solution_t *out);
 
+/* Release the mark array and level buffers the search keeps alive between
+ * solves. Optional -- the process would hand them back anyway -- but it keeps
+ * the allocation ledger balanced for a leak checker. */
+void bfs_release(void);
+
 #endif /* RUBIK_BFS_H */

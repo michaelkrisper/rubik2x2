@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "rubik/coords.hpp"
+#include "rubik/prefetch.hpp"
 
 namespace rubik {
 namespace {
@@ -23,12 +24,28 @@ namespace {
 template <bool Atomic>
 void expand(std::span<const std::uint32_t> nodes, std::vector<std::uint32_t>& out,
             std::uint8_t* distances, std::uint8_t marker, const coords::MoveTables& tables) {
-    for (std::uint32_t node : nodes) {
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        // Name the six cache lines a later frontier entry will need. The move
+        // tables the addresses come from are small and stay hot, so computing
+        // them a second time costs far less than the miss it hides.
+        if (i + prefetch_distance < nodes.size()) {
+            const std::uint32_t ahead = nodes[i + prefetch_distance];
+            const std::uint32_t next_quotient = ahead / coords::orientation_count;
+            const std::uint32_t next_remainder = ahead % coords::orientation_count;
+            const auto& next_wide = tables.permutation_wide[next_quotient];
+            const auto& next_orientation = tables.orientation[next_remainder];
+            for (std::size_t move = 0; move < solve_moves.size(); ++move) {
+                prefetch(distances + next_wide[move] + next_orientation[move]);
+            }
+        }
+
+        const std::uint32_t node = nodes[i];
         const std::uint32_t quotient = node / coords::orientation_count;
         const std::uint32_t remainder = node % coords::orientation_count;
-        for (const coords::MoveTable& table : tables) {
-            const std::uint32_t child =
-                table.permutation_wide[quotient] + table.orientation[remainder];
+        const auto& wide = tables.permutation_wide[quotient];
+        const auto& orientation = tables.orientation[remainder];
+        for (std::size_t move = 0; move < solve_moves.size(); ++move) {
+            const std::uint32_t child = wide[move] + orientation[move];
             if constexpr (Atomic) {
                 std::atomic_ref<std::uint8_t> cell(distances[child]);
                 // The cheap relaxed load skips the great majority of children,
@@ -68,6 +85,10 @@ std::vector<std::uint8_t> search(unsigned workers) {
         std::vector<std::vector<std::uint32_t>> chunks(workers);
 
         if (workers == 1 || level.size() < parallel_threshold) {
+            // A level grows by at most a factor of six, and reallocating a
+            // buffer that reaches five million entries costs more than the
+            // slack does.
+            chunks[0].reserve(level.size() * 2);
             expand<false>(level, chunks[0], distances.data(), marker, tables);
         } else {
             const std::size_t span = (level.size() + workers - 1) / workers;
@@ -146,9 +167,9 @@ Result<Moves> DistanceTable::solve(const State& state) const {
         const std::uint32_t quotient = index / coords::orientation_count;
         const std::uint32_t remainder = index % coords::orientation_count;
         bool stepped = false;
-        for (std::size_t move = 0; move < tables.size() && !stepped; ++move) {
-            const std::uint32_t child =
-                tables[move].permutation_wide[quotient] + tables[move].orientation[remainder];
+        for (std::size_t move = 0; move < solve_moves.size() && !stepped; ++move) {
+            const std::uint32_t child = tables.permutation_wide[quotient][move] +
+                                        tables.orientation[remainder][move];
             if (distance(child) == remaining - 1) {
                 path.push_back(to_char(solve_moves[move]));
                 index = child;

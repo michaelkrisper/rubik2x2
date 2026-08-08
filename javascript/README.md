@@ -86,6 +86,38 @@ TypedArrays carry everything hot: `Uint8Array` for states and distances,
 single `Int32Array(3_674_160)` holding every state in visit order, with level
 boundaries as indices into it, so the build never grows an array.
 
+## `bfs` without a Map
+
+`search.js` used to keep a `Map` per frontier. A `Map` is the wrong shape here:
+a cube state is *already* a dense integer below 3,674,160, so hashing it is work
+spent deriving an index from something that is one, and ~90,000 entries per
+solve is ~7 MB of garbage handed to the collector on every call.
+
+It is now a module-level `Uint32Array(3_674_160)` subscripted by the state
+itself. One load says whether a state has been seen, by which frontier and how
+deep; one store records a child. Each mark packs a distance in bits 0–3, the
+frontier in bit 4, and a **generation stamp** above that. The stamp is what
+makes reuse cheap: 14.7 MB is far too much to clear per solve, so a solve bumps
+a counter and every mark an earlier solve left behind reads as unvisited.
+
+Storing a *distance* rather than a parent state is what buys 27 stamp bits — a
+parent needs 22 and would leave 6, so every 63rd solve would have to zero the
+whole array for real. Paths are rebuilt without parents because breadth-first
+marks are exact: from a node at distance `d`, a neighbour at `d - 1` under the
+same stamp and frontier is a parent, and there are only six neighbours to try.
+That is a few dozen lookups once per solve, against a store saved on each of
+~150,000 edges; the store that remains is a constant for the whole level.
+
+The six move tables are hoisted into locals and the expansion unrolled against
+them, the same shape `ida.js` uses. This is not cosmetic — the readable
+`tables[position].permutation[q]` form measured **0.34 ms** average against
+**0.20 ms** unrolled, because V8 cannot keep the indexed load monomorphic.
+
+Against the two-`Map` version: **0.864 → 0.196 ms** average and
+**16.9 → 3.0 ms** on the antipodal position, best of five runs each. `peak_mb`
+goes from 6.8 to 15.29 and stops being per-solve garbage — the search now rents
+the whole state space once instead of paying for it on every call.
+
 ## The parallel table build (`table-par`)
 
 `DistanceTable.buildParallel()` splits the same breadth-first search across
@@ -174,10 +206,10 @@ Notes on how the numbers are produced:
 - `avg_ms` and `worst_ms` repeat the workload until at least a second has
   passed, so a 5 µs table lookup is measured rather than the clock.
 - `peak_mb` is best effort: what the algorithm keeps resident (its pattern
-  databases or its distance table) plus the heap growth of one hard solve,
-  after forcing a collection. `bfs` pays about 7 MB per solve for two hash maps
-  of ~90,000 entries, and that garbage is why its per-solve figure is noisier
-  than the others.
+  databases, its distance table, or `bfs`'s 14.7 MB mark array) plus the heap
+  growth of one hard solve, after forcing a collection. It is read *after* the
+  algorithm has run, because `bfs` allocates its marks on the first solve and
+  then keeps them.
 - `table-par` reports its own `setup_ms` and inherits `table`'s solve figures:
   only the build is parallelised, and the two builds produce the same bytes.
 

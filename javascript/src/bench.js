@@ -20,6 +20,7 @@ import { runInNewContext } from "node:vm";
 import { N_STATES, encode, wideTables } from "./coords.js";
 import { applyMoves, isSolved, parse } from "./cube.js";
 import { PatternDatabases } from "./ida.js";
+import { retainedBytes } from "./search.js";
 import { makeSolver } from "./solvers.js";
 import { DistanceTable } from "./table.js";
 
@@ -141,19 +142,22 @@ export async function run({ scrambles, samples, workers, minMs = 1000, onProgres
   /** @type {Result[]} */
   const results = [];
   const plans = [
-    { name: "bfs", algorithm: "bfs", setupMs: 0, resident: 0 },
+    // `resident` is read after the algorithm has run, not before: bfs allocates
+    // its mark array on the first solve and then keeps it, so asking up front
+    // would report nothing.
+    { name: "bfs", algorithm: "bfs", setupMs: 0, resident: retainedBytes },
     {
       name: "ida",
       algorithm: "ida",
       setupMs: idaSetupMs,
-      resident: databases.permutation.length + databases.orientation.length,
+      resident: () => databases.permutation.length + databases.orientation.length,
     },
-    { name: "table", algorithm: "table", setupMs: tableSetupMs, resident: table.byteLength },
+    { name: "table", algorithm: "table", setupMs: tableSetupMs, resident: () => table.byteLength },
     {
       name: "table-par",
       algorithm: "table",
       setupMs: parallelSetupMs,
-      resident: table.byteLength,
+      resident: () => table.byteLength,
       workers: workerCount,
     },
   ];
@@ -182,7 +186,7 @@ export async function run({ scrambles, samples, workers, minMs = 1000, onProgres
               ) / states.length,
             ),
             worst_ms: round(measure(() => solve(hardest), { minMs })),
-            peak_mb: round(peakMegabytes(() => solve(hardest), plan.resident), 2),
+            peak_mb: round(peakMegabytes(() => solve(hardest), plan.resident()), 2),
           };
 
     results.push({

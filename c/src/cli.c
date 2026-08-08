@@ -125,6 +125,7 @@ static int command_solve(int argc, char **argv)
         coords_destroy(tables);
         return 2;
     }
+    bfs_release();
     coords_destroy(tables);
 
     if (status != SOLVE_OK) {

@@ -3,137 +3,133 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NO_NODE UINT32_MAX
-
-/* One search direction: a node pool holding the tree of reached states, plus an
- * open-addressed set of the states themselves so membership is a probe rather
- * than a scan. Both grow on demand; a side never holds more than about 160,000
- * nodes, which is why a hash set beats a 3.7 MB flag array per solve.
+/* How a visited state is recorded, packed into one uint32_t:
  *
- * The set stores the state, not the node id: a probe is then one load with no
- * detour through the node pool, and the loop that filters six children per node
- * touches nothing but the slot array. The node id for a state is only ever
- * wanted once per solve -- when the two searches meet -- and side_locate finds
- * it by scanning the pool, which is linear but runs exactly once. */
+ *     bits  0..3   its distance from this frontier's root
+ *     bit   4      which frontier claimed it
+ *     bits  5..31  generation stamp
+ *
+ * A cube state is already a dense integer below COORD_STATES, so the visited set
+ * wants no hash table: one flat array subscripted by the state itself answers
+ * "seen, by which side, how far in" in a single load, and records a child in a
+ * single store of a value that is constant for the whole level. The previous
+ * version kept two open-addressed sets and a node pool per solve; hashing and
+ * probing a number that was already a perfect index dominated the run time.
+ *
+ * The array is 14.7 MB, far too big to clear per solve, so marks carry a
+ * generation stamp: a solve bumps a counter and everything left by earlier
+ * solves reads as unvisited. That is why the mark stores a *distance* and not a
+ * parent state: a parent needs 22 bits and leaves only 6 for the stamp, so every
+ * 63rd solve pays to zero the whole array -- a fifth of the average solve, all
+ * of it memset. A distance needs 4 bits, leaves 27, and the clear happens once
+ * in 134 million solves, which is to say never.
+ *
+ * Distances are enough to rebuild the path because breadth-first marks are exact:
+ * from a node at distance d, exactly the neighbours at d-1 on the same side are
+ * parents, and there are only six neighbours to try. bfs_trail walks back that
+ * way -- a few dozen lookups once per solve, against a saved store on every one
+ * of ~150,000 edges.
+ */
+enum {
+    MARK_DEPTH_BITS = 4,             /* SOLVER_MAX_DEPTH fits, and levels stop at 8 */
+    MARK_DEPTH_MASK = (1 << MARK_DEPTH_BITS) - 1,
+    MARK_SIDE_POS = MARK_DEPTH_BITS,
+    MARK_GEN_POS = MARK_SIDE_POS + 1,
+};
+
+#define MARK_SIDE_BIT ((uint32_t)1 << MARK_SIDE_POS)
+#define MARK_GEN_MASK (~(MARK_SIDE_BIT | (uint32_t)MARK_DEPTH_MASK))
+#define MARK_MAX_GEN ((UINT32_MAX >> MARK_GEN_POS) - 1)
+
+/* One breadth-first level: a plain array of states, reused across solves. Three
+ * of them rotate -- the two frontiers and the level being built. */
 typedef struct {
-    uint32_t *state;
-    uint32_t *parent;
-    uint8_t *move;
+    uint32_t *at;
     uint32_t count;
     uint32_t capacity;
+} level_t;
 
-    uint32_t *slot;     /* state + 1; 0 means empty */
-    uint32_t mask;      /* slot count - 1, always a power of two minus one */
-} side_t;
+/* The working set of one solve, kept alive between solves so the mark array is
+ * allocated once. bfs_solve is not thread-safe; nothing in this program solves
+ * concurrently, and a 14.7 MB allocation per solve would cost far more than the
+ * search it serves. bfs_release hands it all back. */
+static uint32_t *bfs_marks;
+static uint32_t bfs_generation;
+static level_t bfs_level[3];
 
-static void side_free(side_t *side)
+static bool level_reserve(level_t *level, uint32_t wanted)
 {
-    free(side->state);
-    free(side->parent);
-    free(side->move);
-    free(side->slot);
-    *side = (side_t){0};
-}
-
-static size_t side_bytes(const side_t *side)
-{
-    return (size_t)side->capacity * (sizeof *side->state + sizeof *side->parent
-                                     + sizeof *side->move)
-         + ((size_t)side->mask + 1) * sizeof *side->slot;
-}
-
-static inline uint32_t hash_state(uint32_t state)
-{
-    return state * 0x9e3779b1u;
-}
-
-static bool side_rehash(side_t *side, uint32_t slots)
-{
-    uint32_t *const fresh = calloc(slots, sizeof *fresh);
-    if (!fresh)
+    if (wanted <= level->capacity)
+        return true;
+    uint32_t capacity = level->capacity ? level->capacity : 4096;
+    while (capacity < wanted)
+        capacity *= 2;
+    uint32_t *const grown = realloc(level->at, (size_t)capacity * sizeof *grown);
+    if (!grown)
         return false;
-    free(side->slot);
-    side->slot = fresh;
-    side->mask = slots - 1;
-    for (uint32_t node = 0; node < side->count; node++) {
-        uint32_t at = hash_state(side->state[node]) & side->mask;
-        while (side->slot[at])
-            at = (at + 1) & side->mask;
-        side->slot[at] = node + 1;
+    level->at = grown;
+    level->capacity = capacity;
+    return true;
+}
+
+/* Begin a solve; yields the stamp this solve's marks carry. */
+static bool bfs_stamp(uint32_t *generation)
+{
+    if (!bfs_marks) {
+        bfs_marks = calloc(COORD_STATES, sizeof *bfs_marks);
+        if (!bfs_marks)
+            return false;
     }
-    return true;
-}
-
-static bool side_init(side_t *side)
-{
-    *side = (side_t){0};
-    side->capacity = 1024;
-    side->state = malloc(side->capacity * sizeof *side->state);
-    side->parent = malloc(side->capacity * sizeof *side->parent);
-    side->move = malloc(side->capacity * sizeof *side->move);
-    if (!side->state || !side->parent || !side->move || !side_rehash(side, 2048)) {
-        side_free(side);
-        return false;
+    if (bfs_generation >= MARK_MAX_GEN) {
+        memset(bfs_marks, 0, (size_t)COORD_STATES * sizeof *bfs_marks);
+        bfs_generation = 0;
     }
+    bfs_generation++;
+    *generation = bfs_generation << MARK_GEN_POS;
     return true;
 }
 
-static bool side_grow(side_t *side)
+void bfs_release(void)
 {
-    const uint32_t capacity = side->capacity * 2;
-    uint32_t *const state = realloc(side->state, capacity * sizeof *state);
-    if (state)
-        side->state = state;
-    uint32_t *const parent = realloc(side->parent, capacity * sizeof *parent);
-    if (parent)
-        side->parent = parent;
-    uint8_t *const move = realloc(side->move, capacity * sizeof *move);
-    if (move)
-        side->move = move;
-    if (!state || !parent || !move)
-        return false;
-    side->capacity = capacity;
-    return true;
+    free(bfs_marks);
+    bfs_marks = nullptr;
+    bfs_generation = 0;
+    for (int i = 0; i < 3; i++) {
+        free(bfs_level[i].at);
+        bfs_level[i] = (level_t){0};
+    }
 }
 
-/* Node holding `state`, or NO_NODE. */
-static inline uint32_t side_find(const side_t *side, uint32_t state)
+static size_t bfs_bytes(void)
 {
-    uint32_t at = hash_state(state) & side->mask;
-    for (uint32_t entry; (entry = side->slot[at]); at = (at + 1) & side->mask)
-        if (side->state[entry - 1] == state)
-            return entry - 1;
-    return NO_NODE;
+    size_t bytes = (size_t)COORD_STATES * sizeof *bfs_marks;
+    for (int i = 0; i < 3; i++)
+        bytes += (size_t)bfs_level[i].capacity * sizeof *bfs_level[i].at;
+    return bytes;
 }
 
-static bool side_insert(side_t *side, uint32_t state, uint32_t parent, uint8_t move)
-{
-    if (side->count == side->capacity && !side_grow(side))
-        return false;
-    /* Keep the load factor under a half: linear probing degrades fast above it
-     * and the table is tiny compared to the node pool. */
-    if ((side->count + 1) * 2 > side->mask + 1 && !side_rehash(side, (side->mask + 1) * 2))
-        return false;
-
-    const uint32_t node = side->count++;
-    side->state[node] = state;
-    side->parent[node] = parent;
-    side->move[node] = move;
-
-    uint32_t at = hash_state(state) & side->mask;
-    while (side->slot[at])
-        at = (at + 1) & side->mask;
-    side->slot[at] = node + 1;
-    return true;
-}
-
-/* The moves from a side's root down to `node`, in root-first order. */
-static int side_path(const side_t *side, uint32_t node, const char *alphabet, char *out)
+/* The moves from `node`'s frontier root down to `node`, in root-first order.
+ *
+ * `tag` is the generation and side bit the frontier's marks carry. A neighbour
+ * one step shallower under the same tag is a parent by construction, and the
+ * move reaching `node` from it is the inverse of the one that got there --
+ * adjacent indices, which is why the six solve moves are ordered as they are.
+ */
+static int bfs_trail(const coord_tables_t *tables, uint32_t node, uint32_t tag, char *out)
 {
     char reversed[SOLVER_MOVES_SIZE];
     int length = 0;
-    for (uint32_t at = node; side->parent[at] != NO_NODE; at = side->parent[at])
-        reversed[length++] = alphabet[side->move[at]];
+    for (uint32_t depth = bfs_marks[node] & MARK_DEPTH_MASK; depth > 0; depth--) {
+        const uint32_t parent_mark = tag | (depth - 1);
+        for (int move = 0; move < COORD_MOVES; move++) {
+            const uint32_t back = coords_apply(tables, move ^ 1, node);
+            if (bfs_marks[back] == parent_mark) {
+                reversed[length++] = cube_solve_move_chars[move];
+                node = back;
+                break;
+            }
+        }
+    }
     for (int i = 0; i < length; i++)
         out[i] = reversed[length - 1 - i];
     out[length] = '\0';
@@ -146,70 +142,82 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
     if (start == COORD_SOLVED_INDEX)
         return SOLVE_OK;
 
-    side_t forward, backward;
-    if (!side_init(&forward))
+    uint32_t generation;
+    if (!bfs_stamp(&generation) || !level_reserve(&bfs_level[0], 1)
+        || !level_reserve(&bfs_level[1], 1))
         return SOLVE_OUT_OF_MEMORY;
-    if (!side_init(&backward)) {
-        side_free(&forward);
-        return SOLVE_OUT_OF_MEMORY;
-    }
+
+    uint32_t *const marks = bfs_marks;
+    marks[start] = generation;
+    marks[COORD_SOLVED_INDEX] = generation | MARK_SIDE_BIT;
+
+    level_t *forward = &bfs_level[0], *backward = &bfs_level[1], *next = &bfs_level[2];
+    forward->count = 0;
+    forward->at[forward->count++] = start;
+    backward->count = 0;
+    backward->at[backward->count++] = COORD_SOLVED_INDEX;
+
+    /* The two sides advance independently -- each round grows only one of them --
+     * so each carries its own level depth, which is what the marks record. */
+    uint32_t forward_depth = 0, backward_depth = 0;
 
     solve_status_t status = SOLVE_NO_SOLUTION;
-    if (!side_insert(&forward, start, NO_NODE, 0)
-        || !side_insert(&backward, COORD_SOLVED_INDEX, NO_NODE, 0))
-        status = SOLVE_OUT_OF_MEMORY;
-
-    /* Half-open node ranges [begin, end) delimit the current level of each side. */
-    uint32_t forward_begin = 0, forward_end = 1;
-    uint32_t backward_begin = 0, backward_end = 1;
-
-    for (int depth = 0; status == SOLVE_NO_SOLUTION && depth < SOLVER_MAX_DEPTH; depth++) {
+    for (int round = 0; round < SOLVER_MAX_DEPTH; round++) {
         /* Always grow the cheaper side, which keeps both halves shallow. */
-        const bool from_goal =
-            (backward_end - backward_begin) < (forward_end - forward_begin);
-        side_t *const side = from_goal ? &backward : &forward;
-        const side_t *const other = from_goal ? &forward : &backward;
-        const uint32_t begin = from_goal ? backward_begin : forward_begin;
-        const uint32_t end = from_goal ? backward_end : forward_end;
+        const bool from_goal = backward->count < forward->count;
+        level_t *const level = from_goal ? backward : forward;
+        uint32_t *const level_depth = from_goal ? &backward_depth : &forward_depth;
+        const uint32_t side = from_goal ? MARK_SIDE_BIT : 0;
+        /* Every state reached this round gets the same mark, so the store in the
+         * inner loop is a constant. */
+        const uint32_t reached = generation | side | (*level_depth + 1);
 
-        uint32_t meeting_here = NO_NODE, meeting_there = NO_NODE;
-        uint8_t meeting_move = 0;
+        next->count = 0;
+        uint32_t meeting = 0, from = 0;
+        int by = COORD_MOVES;
 
-        for (uint32_t node = begin; node < end && meeting_here == NO_NODE; node++) {
-            const uint32_t index = side->state[node];
-            const uint32_t *const perm = tables->perm_by_q[index / COORD_ORIENTATIONS];
-            const uint16_t *const orient = tables->orient_by_r[index % COORD_ORIENTATIONS];
-            for (uint8_t move = 0; move < COORD_MOVES; move++) {
+        /* Six children per node at most, reserved once so the inner loop can
+         * store without checking. */
+        if (!level_reserve(next, level->count * COORD_MOVES)) {
+            status = SOLVE_OUT_OF_MEMORY;
+            goto done;
+        }
+
+        for (uint32_t i = 0; i < level->count && by == COORD_MOVES; i++) {
+            const uint32_t node = level->at[i];
+            const uint32_t *const perm = tables->perm_by_q[node / COORD_ORIENTATIONS];
+            const uint16_t *const orient = tables->orient_by_r[node % COORD_ORIENTATIONS];
+            for (int move = 0; move < COORD_MOVES; move++) {
                 const uint32_t child = perm[move] + orient[move];
-                if (side_find(side, child) != NO_NODE)
-                    continue;
-                const uint32_t there = side_find(other, child);
-                if (there != NO_NODE) {
-                    meeting_here = node;
-                    meeting_there = there;
-                    meeting_move = move;
+                const uint32_t mark = marks[child];
+                if ((mark & MARK_GEN_MASK) == generation) {
+                    if ((mark & MARK_SIDE_BIT) == side)
+                        continue; /* this side has already been here */
+                    meeting = child;
+                    from = node;
+                    by = move;
                     break;
                 }
-                if (!side_insert(side, child, node, move)) {
-                    status = SOLVE_OUT_OF_MEMORY;
-                    goto done;
-                }
+                marks[child] = reached;
+                next->at[next->count++] = child;
             }
         }
 
-        if (meeting_here != NO_NODE) {
+        if (by != COORD_MOVES) {
+            /* One trail runs from each root to the meeting point; the move that
+             * joined them belongs to whichever side was expanding. */
+            const uint32_t here = generation | side;
+            const uint32_t there = generation | (side ^ MARK_SIDE_BIT);
             char from_start[SOLVER_MOVES_SIZE], to_goal[SOLVER_MOVES_SIZE];
             int start_length, goal_length;
             if (from_goal) {
-                start_length = side_path(&forward, meeting_there, cube_solve_move_chars,
-                                         from_start);
-                goal_length = side_path(&backward, meeting_here, cube_solve_move_chars, to_goal);
-                to_goal[goal_length++] = cube_solve_move_chars[meeting_move];
+                start_length = bfs_trail(tables, meeting, there, from_start);
+                goal_length = bfs_trail(tables, from, here, to_goal);
+                to_goal[goal_length++] = cube_solve_move_chars[by];
             } else {
-                start_length = side_path(&forward, meeting_here, cube_solve_move_chars,
-                                         from_start);
-                from_start[start_length++] = cube_solve_move_chars[meeting_move];
-                goal_length = side_path(&backward, meeting_there, cube_solve_move_chars, to_goal);
+                start_length = bfs_trail(tables, from, here, from_start);
+                from_start[start_length++] = cube_solve_move_chars[by];
+                goal_length = bfs_trail(tables, meeting, there, to_goal);
             }
             from_start[start_length] = '\0';
             to_goal[goal_length] = '\0';
@@ -221,23 +229,23 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
             break;
         }
 
-        if (from_goal) {
-            backward_begin = backward_end;
-            backward_end = backward.count;
-            if (backward_begin == backward_end)
-                break;
-        } else {
-            forward_begin = forward_end;
-            forward_end = forward.count;
-            if (forward_begin == forward_end)
-                break;
-        }
+        level_t *const spent = level;
+        if (from_goal)
+            backward = next;
+        else
+            forward = next;
+        next = spent;
+        (*level_depth)++;
+        if (forward->count == 0 || backward->count == 0)
+            break;
     }
 
 done:
-    out->peak_bytes = side_bytes(&forward) + side_bytes(&backward);
-    side_free(&forward);
-    side_free(&backward);
+    out->peak_bytes = bfs_bytes();
+    /* The three levels must return to their slots: they are swapped by pointer
+     * above, and the next solve starts again from bfs_level[0] and [1]. */
+    const level_t kept[3] = {*forward, *backward, *next};
+    memcpy(bfs_level, kept, sizeof kept);
     return status;
 }
 

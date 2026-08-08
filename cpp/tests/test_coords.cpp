@@ -93,10 +93,11 @@ TEST(every_way_of_holding_a_cube_encodes) {
 }
 
 TEST(the_wide_tables_are_the_plain_ones_scaled) {
-    for (const coords::MoveTable& table : coords::move_tables()) {
-        for (std::uint32_t rank = 0; rank < coords::permutation_count; ++rank) {
-            CHECK_EQ(table.permutation_wide[rank],
-                     table.permutation[rank] * coords::orientation_count);
+    const coords::MoveTables& tables = coords::move_tables();
+    for (std::uint32_t rank = 0; rank < coords::permutation_count; ++rank) {
+        for (std::size_t move = 0; move < solve_moves.size(); ++move) {
+            CHECK_EQ(tables.permutation_wide[rank][move],
+                     tables.permutation[rank][move] * coords::orientation_count);
         }
     }
 }

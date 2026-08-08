@@ -350,6 +350,7 @@ int bench_run(const char *path, int limit, bool json, int workers)
     else
         print_table(results, BENCH_ALGORITHMS, set.count);
 
+    bfs_release();
     ida_databases_destroy(databases);
     table_destroy(table);
     table_destroy(parallel);

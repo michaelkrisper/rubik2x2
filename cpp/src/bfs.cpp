@@ -1,145 +1,105 @@
 #include "rubik/bfs.hpp"
 
-#include <bit>
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <format>
-#include <utility>
 #include <vector>
 
 #include "rubik/coords.hpp"
+#include "rubik/prefetch.hpp"
 
 namespace rubik {
 namespace {
 
-/// A path of at most 14 solve moves packed into one word: three bits per move
-/// from the bottom up, the length in the top six. Keeping paths in a register
-/// instead of a `std::string` is what lets the frontier maps stay flat and
-/// allocation-free per entry.
-class PackedPath {
-  public:
-    constexpr PackedPath() = default;
-
-    [[nodiscard]] constexpr PackedPath push(std::size_t move) const {
-        const std::size_t length = size();
-        return PackedPath{(raw_ & mask) | (static_cast<std::uint64_t>(move) << (3 * length)) |
-                          (static_cast<std::uint64_t>(length + 1) << length_shift)};
-    }
-
-    [[nodiscard]] constexpr std::size_t size() const {
-        return static_cast<std::size_t>(raw_ >> length_shift);
-    }
-
-    [[nodiscard]] constexpr std::size_t operator[](std::size_t index) const {
-        return static_cast<std::size_t>((raw_ >> (3 * index)) & 0b111);
-    }
-
-    /// The moves in order.
-    [[nodiscard]] Moves forward() const {
-        Moves moves;
-        moves.reserve(size());
-        for (std::size_t i = 0; i < size(); ++i) {
-            moves.push_back(to_char(solve_moves[(*this)[i]]));
-        }
-        return moves;
-    }
-
-    /// The moves undone: reversed, with every turn flipped. A path *to* the
-    /// goal read this way is a path *from* it.
-    [[nodiscard]] Moves inverted() const {
-        Moves moves;
-        moves.reserve(size());
-        for (std::size_t i = size(); i-- > 0;) {
-            // Inverses sit at adjacent indices in `solve_moves`.
-            moves.push_back(to_char(solve_moves[(*this)[i] ^ 1u]));
-        }
-        return moves;
-    }
-
-  private:
-    static constexpr std::size_t length_shift = 58;
-    static constexpr std::uint64_t mask = (std::uint64_t{1} << length_shift) - 1;
-
-    explicit constexpr PackedPath(std::uint64_t raw) : raw_(raw) {}
-
-    std::uint64_t raw_ = 0;
-};
-
-/// Open-addressed map from state index to the path that reached it.
+/// How a visited state is recorded, packed into one `std::uint32_t`:
 ///
-/// A `std::unordered_map` would allocate a node per state, and this inserts
-/// tens of thousands of them per solve; linear probing over one flat vector
-/// keeps the whole frontier in a handful of cache-friendly pages.
-class IndexMap {
+///     bits  0..2   the move that arrived here (`root_move` for a root)
+///     bits  3..24  the state it arrived from (3,674,160 < 2^22)
+///     bit   25     which frontier claimed it
+///     bits 26..31  generation stamp
+///
+/// A cube state is already a dense index below `coords::state_count`, so the
+/// visited set is a flat array subscripted by the state itself rather than a
+/// hash map: no hashing, no probing, and one array write per edge instead of a
+/// lookup in one map, a lookup in the other and an insert.
+constexpr std::uint32_t move_bits = 3;
+constexpr std::uint32_t move_mask = (1u << move_bits) - 1;
+constexpr std::uint32_t root_move = move_mask;  // no real move index reaches 7
+constexpr std::uint32_t parent_position = move_bits;
+constexpr std::uint32_t parent_bits = 22;
+constexpr std::uint32_t parent_mask = (1u << parent_bits) - 1;
+constexpr std::uint32_t side_position = parent_position + parent_bits;
+constexpr std::uint32_t side_bit = 1u << side_position;
+constexpr std::uint32_t generation_position = side_position + 1;
+constexpr std::uint32_t generation_mask =
+    ~(side_bit | (parent_mask << parent_position) | move_mask);
+constexpr std::uint32_t max_generation = (0xFFFF'FFFFu >> generation_position) - 1;
+
+static_assert(coords::state_count <= parent_mask, "a state no longer fits the parent field");
+static_assert(solve_moves.size() < root_move, "a move index would collide with the root marker");
+
+/// The working set of one solve, kept alive between solves.
+///
+/// Allocating and zeroing 14.7 MB per solve would cost far more than the search
+/// itself, so the mark array is allocated once and *aged* rather than cleared: a
+/// solve bumps the generation counter and marks left by earlier solves no longer
+/// match, so they read as unvisited. Six bits give 63 solves between real
+/// clears, which amortises the one memset that is left to nothing.
+class Scratch {
   public:
-    explicit IndexMap(std::size_t capacity) : slots_(capacity, Slot{}) {
-        shift_ = 64 - static_cast<unsigned>(std::countr_zero(capacity));
-        limit_ = capacity / 2;
-    }
-
-    [[nodiscard]] const PackedPath* find(std::uint32_t key) const {
-        for (std::size_t i = bucket(key);; i = (i + 1) & (slots_.size() - 1)) {
-            if (slots_[i].key == key) {
-                return &slots_[i].path;
-            }
-            if (slots_[i].key == empty) {
-                return nullptr;
-            }
+    /// Begin a solve; returns the tag this solve's marks carry.
+    [[nodiscard]] std::uint32_t stamp() {
+        if (generation_ >= max_generation) {
+            std::ranges::fill(marks_, 0u);
+            generation_ = 0;
         }
+        ++generation_;
+        return generation_ << generation_position;
     }
 
-    /// Insert unless present. Returns false when the key was already there.
-    bool insert(std::uint32_t key, PackedPath path) {
-        for (std::size_t i = bucket(key);; i = (i + 1) & (slots_.size() - 1)) {
-            if (slots_[i].key == key) {
-                return false;
-            }
-            if (slots_[i].key == empty) {
-                slots_[i] = Slot{key, path};
-                if (++size_ > limit_) {
-                    grow();
-                }
-                return true;
-            }
-        }
-    }
-
-    [[nodiscard]] std::size_t size() const { return size_; }
+    [[nodiscard]] std::uint32_t* marks() { return marks_.data(); }
+    [[nodiscard]] std::vector<std::uint32_t>& buffer(std::size_t which) { return buffers_[which]; }
 
   private:
-    static constexpr std::uint32_t empty = 0xFFFF'FFFFu;  // no state index reaches this
-    struct Slot {
-        std::uint32_t key = empty;
-        PackedPath path{};
-    };
+    std::vector<std::uint32_t> marks_ = std::vector<std::uint32_t>(coords::state_count, 0u);
+    std::array<std::vector<std::uint32_t>, 3> buffers_{};
+    std::uint32_t generation_ = 0;
+};
 
-    [[nodiscard]] std::size_t bucket(std::uint32_t key) const {
-        // Fibonacci hashing: state indices are dense and clustered, so the low
-        // bits alone would collide badly.
-        return static_cast<std::size_t>((key * 0x9E37'79B9'7F4A'7C15ull) >> shift_);
-    }
+/// One `Scratch` per thread. A plain function-local `static` would be a data
+/// race the moment two threads solved at once -- this file has no way to know
+/// that they do not -- and an argument would force the 14.7 MB buffer into the
+/// public signature of `solve_bfs`, which the CLI contract fixes. The thread
+/// -local indirection is paid once per solve, not once per node.
+[[nodiscard]] Scratch& scratch() {
+    static thread_local Scratch instance;
+    return instance;
+}
 
-    void grow() {
-        IndexMap larger(slots_.size() * 2);
-        for (const Slot& slot : slots_) {
-            if (slot.key != empty) {
-                larger.insert(slot.key, slot.path);
-            }
+/// Moves along one frontier's path, from its root to the meeting point.
+struct Trail {
+    std::array<std::uint8_t, max_depth + 1> moves{};
+    std::size_t size = 0;
+};
+
+/// Walk the marks back to this frontier's root, yielding the moves in forward
+/// order: the sequence that turns that root into `node`.
+[[nodiscard]] Trail trail(const std::uint32_t* marks, std::uint32_t node) {
+    Trail out;
+    for (;;) {
+        const std::uint32_t mark = marks[node];
+        const std::uint32_t move = mark & move_mask;
+        if (move == root_move) {
+            break;
         }
-        *this = std::move(larger);
+        out.moves[out.size++] = static_cast<std::uint8_t>(move);
+        node = (mark >> parent_position) & parent_mask;
     }
-
-    std::vector<Slot> slots_;
-    std::size_t size_ = 0;
-    std::size_t limit_ = 0;
-    unsigned shift_ = 0;
-};
-
-/// One half of the search: everything it has seen, and the level it is about
-/// to expand.
-struct Frontier {
-    IndexMap seen;
-    std::vector<std::uint32_t> level;
-};
+    std::ranges::reverse(out.moves.begin(), out.moves.begin() + static_cast<std::ptrdiff_t>(out.size));
+    return out;
+}
 
 }  // namespace
 
@@ -152,45 +112,109 @@ Result<Moves> solve_bfs(const State& state) {
         return Moves{};
     }
 
+    Scratch& work = scratch();
+    const std::uint32_t generation = work.stamp();
+    std::uint32_t* const marks = work.marks();
     const coords::MoveTables& tables = coords::move_tables();
-    constexpr std::size_t initial_capacity = 1u << 12;
 
-    Frontier forward{IndexMap{initial_capacity}, {*start}};
-    Frontier backward{IndexMap{initial_capacity}, {coords::solved_index}};
-    forward.seen.insert(*start, PackedPath{});
-    backward.seen.insert(coords::solved_index, PackedPath{});
+    marks[*start] = generation | root_move;
+    marks[coords::solved_index] = generation | side_bit | root_move;
+
+    std::vector<std::uint32_t>& forward = work.buffer(0);
+    std::vector<std::uint32_t>& backward = work.buffer(1);
+    std::vector<std::uint32_t>& following = work.buffer(2);
+    forward.assign(1, *start);
+    backward.assign(1, coords::solved_index);
 
     for (int depth = 0; depth < max_depth; ++depth) {
         // Always grow the cheaper side, which keeps both halves shallow.
-        const bool from_goal = backward.level.size() < forward.level.size();
-        Frontier& growing = from_goal ? backward : forward;
-        const Frontier& facing = from_goal ? forward : backward;
+        const bool from_goal = backward.size() < forward.size();
+        std::vector<std::uint32_t>& growing = from_goal ? backward : forward;
+        const std::uint32_t side = from_goal ? side_bit : 0u;
 
-        std::vector<std::uint32_t> following;
-        following.reserve(growing.level.size() * 4);
+        following.clear();
+        bool met = false;
+        std::uint32_t meeting = 0;
+        std::uint32_t from = 0;
+        std::size_t by = 0;
 
-        for (std::uint32_t node : growing.level) {
-            const PackedPath path = *growing.seen.find(node);
+        for (std::size_t i = 0; i < growing.size(); ++i) {
+            // Every edge touches one random word of a 14.7 MB array, so the
+            // loop stalls on memory rather than on arithmetic. Naming a later
+            // entry's six marks now overlaps those misses with this entry's
+            // work; the move tables the addresses come from stay in cache.
+            if (i + prefetch_distance < growing.size()) {
+                const std::uint32_t ahead = growing[i + prefetch_distance];
+                const std::uint32_t next_quotient = ahead / coords::orientation_count;
+                const std::uint32_t next_remainder = ahead % coords::orientation_count;
+                const auto& next_wide = tables.permutation_wide[next_quotient];
+                const auto& next_orientation = tables.orientation[next_remainder];
+                for (std::size_t move = 0; move < solve_moves.size(); ++move) {
+                    prefetch(marks + next_wide[move] + next_orientation[move]);
+                }
+            }
+
+            const std::uint32_t node = growing[i];
             const std::uint32_t quotient = node / coords::orientation_count;
             const std::uint32_t remainder = node % coords::orientation_count;
 
-            for (std::size_t move = 0; move < tables.size(); ++move) {
-                const std::uint32_t child =
-                    tables[move].permutation_wide[quotient] + tables[move].orientation[remainder];
-                const PackedPath extended = path.push(move);
-                if (const PackedPath* met = facing.seen.find(child)) {
-                    const Moves from_start = from_goal ? met->forward() : extended.forward();
-                    const Moves to_goal = from_goal ? extended.inverted() : met->inverted();
-                    return from_start + to_goal;
+            const auto& wide = tables.permutation_wide[quotient];
+            const auto& orientation = tables.orientation[remainder];
+            for (std::size_t move = 0; move < solve_moves.size(); ++move) {
+                const std::uint32_t child = wide[move] + orientation[move];
+                const std::uint32_t mark = marks[child];
+                if ((mark & generation_mask) == generation) {
+                    if ((mark & side_bit) == side) {
+                        continue;  // this side has already been here
+                    }
+                    meeting = child;
+                    from = node;
+                    by = move;
+                    met = true;
+                    break;
                 }
-                if (growing.seen.insert(child, extended)) {
-                    following.push_back(child);
-                }
+                marks[child] = generation | side | (node << parent_position) |
+                               static_cast<std::uint32_t>(move);
+                following.push_back(child);
+            }
+            if (met) {
+                break;
             }
         }
 
-        growing.level = std::move(following);
-        if (forward.level.empty() || backward.level.empty()) {
+        if (met) {
+            // `reached` runs from the growing side's root to the meeting point,
+            // `opposite` from the other root to the same place. Whichever half
+            // ends at the goal is the one that gets undone.
+            Trail reached = trail(marks, from);
+            reached.moves[reached.size++] = static_cast<std::uint8_t>(by);
+            const Trail opposite = trail(marks, meeting);
+
+            Moves solution;
+            solution.reserve(reached.size + opposite.size);
+            const auto append_forward = [&solution](const Trail& path) {
+                for (std::size_t i = 0; i < path.size; ++i) {
+                    solution.push_back(solve_move_chars[path.moves[i]]);
+                }
+            };
+            const auto append_inverted = [&solution](const Trail& path) {
+                for (std::size_t i = path.size; i-- > 0;) {
+                    // Inverses sit at adjacent indices in `solve_moves`.
+                    solution.push_back(solve_move_chars[path.moves[i] ^ 1u]);
+                }
+            };
+            if (from_goal) {
+                append_forward(opposite);
+                append_inverted(reached);
+            } else {
+                append_forward(reached);
+                append_inverted(opposite);
+            }
+            return solution;
+        }
+
+        growing.swap(following);
+        if (forward.empty() || backward.empty()) {
             break;
         }
     }

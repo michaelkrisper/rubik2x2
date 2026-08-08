@@ -474,6 +474,7 @@ int main(void)
     RUN("orientation independence", test_orientation_independence(tables, table));
     RUN("solvers agree", test_solvers(tables, table, databases));
 
+    bfs_release();
     table_destroy(table);
     ida_databases_destroy(databases);
     coords_destroy(tables);

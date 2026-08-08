@@ -25,11 +25,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc, clang]
+        # Ubuntu's default gcc predates -std=c23; gcc-14 is the first that takes it.
+        include:
+          - { compiler: gcc-14, install: gcc-14 }
+          - { compiler: clang, install: clang }
     name: c (${{ matrix.compiler }})
     defaults: { run: { working-directory: c } }
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.install }}
       - run: make CC=${{ matrix.compiler }}
       - run: make CC=${{ matrix.compiler }} test
       - run: ./rubik2x2 table

@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Frontier entries of lookahead for the mark prefetch. Measured. */
+#define BFS_LOOKAHEAD 6
+
 /* How a visited state is recorded, packed into one uint32_t:
  *
  *     bits  0..3   its distance from this frontier's root
@@ -184,6 +187,15 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
         }
 
         for (uint32_t i = 0; i < level->count && by == COORD_MOVES; i++) {
+            /* Name the mark words this loop wants a few entries from now: one
+             * random word of a 14.7 MB array per edge, against 3 MiB of cache. */
+            if (i + BFS_LOOKAHEAD < level->count) {
+                const uint32_t ahead = level->at[i + BFS_LOOKAHEAD];
+                const uint32_t *const p = tables->perm_by_q[ahead / COORD_ORIENTATIONS];
+                const uint16_t *const o = tables->orient_by_r[ahead % COORD_ORIENTATIONS];
+                for (int m = 0; m < COORD_MOVES; m++)
+                    __builtin_prefetch(&marks[p[m] + o[m]], 1, 1);
+            }
             const uint32_t node = level->at[i];
             const uint32_t *const perm = tables->perm_by_q[node / COORD_ORIENTATIONS];
             const uint16_t *const orient = tables->orient_by_r[node % COORD_ORIENTATIONS];

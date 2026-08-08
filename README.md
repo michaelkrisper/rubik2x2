@@ -84,11 +84,11 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Version | Table build | Per solve | Break-even | Threaded build |
 |---|---|---|---|---|---|
-| C (clang) | clang version 22.1.8 | 123 ms | 0.0004 ms | 2,031 solves | 1.71× (4 threads) |
+| C (clang) | clang version 22.1.8 | 124 ms | 0.0004 ms | 2,384 solves | 1.74× (4 threads) |
+| Assembly | 2.46.1-1.fc44 | 126 ms | 0.0004 ms | 2,893 solves | 1.51× (4 threads) |
 | C++ (clang) | clang version 22.1.8 | 131 ms | 0.00049 ms | 1,774 solves | 1.73× (4 threads) |
-| Assembly | 2.46.1-1.fc44 | 134 ms | 0.0004 ms | 1,758 solves | 1.37× (4 threads) |
 | C++ | C++23 (GCC 16.1.1) | 137 ms | 0.00045 ms | 1,818 solves | 1.68× (4 threads) |
-| C | gcc 16.1.1 | 143 ms | 0.0004 ms | 2,412 solves | 1.66× (4 threads) |
+| C | gcc 16.1.1 | 138 ms | 0.0004 ms | 2,880 solves | 1.68× (4 threads) |
 | Rust | 1.97.1 | 173 ms | 0.0006 ms | 1,780 solves | 1.68× (4 threads) |
 | Go | 1.26.5-X:nodwarf5 | 248 ms | 0.001 ms | 1,380 solves | 1.51× (4 threads) |
 | C# | 10.0.10 | 307 ms | 0.00075 ms | 1,631 solves | 1.12× (4 threads) |
@@ -99,11 +99,11 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Build from clean | Artifact | Source files | Source lines | Test lines |
 |---|---|---|---|---|---|
-| C (clang) | 1.6 s | 60 KB | 17 | 2,175 | 427 |
+| C (clang) | 1.5 s | 60 KB | 17 | 2,175 | 427 |
+| Assembly | 0.1 s | 47 KB | 8 | 3,427 | 644 |
 | C++ (clang) | 34.9 s | 261 KB | 9 | 1,367 | 492 |
-| Assembly | 0.1 s | 46 KB | 8 | 3,368 | 644 |
 | C++ | 34.2 s | 261 KB | 9 | 1,367 | 492 |
-| C | 2.0 s | 52 KB | 17 | 2,175 | 427 |
+| C | 1.9 s | 52 KB | 17 | 2,175 | 427 |
 | Rust | 10.5 s | 598 KB | 13 | 1,326 | 366 |
 | Go | — | 2.1 MB | 16 | 2,328 | 866 |
 | C# | 3.7 s | 227 KB | 30 | 2,237 | 408 |
@@ -114,11 +114,11 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Startup | Resident at startup | vs. one table lookup |
 |---|---|---|---|
-| C (clang) | 1.7 ms | 1.6 MB | 4,300× |
+| C (clang) | 1.6 ms | 1.5 MB | 3,896× |
+| Assembly | 1.7 ms | 1.5 MB | 4,128× |
 | C++ (clang) | 2.8 ms | 3.9 MB | 5,581× |
-| Assembly | 1.8 ms | 1.5 MB | 4,424× |
 | C++ | 2.8 ms | 3.9 MB | 6,160× |
-| C | 1.6 ms | 1.6 MB | 3,880× |
+| C | 1.6 ms | 1.6 MB | 4,050× |
 | Rust | 1.8 ms | 2.2 MB | 3,035× |
 | Go | 8.7 ms | 2.8 MB | 8,424× |
 | C# | 52.0 ms | 26.9 MB | 69,567× |
@@ -131,11 +131,11 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 0 | 0.107 | 123 | 72.2 |
+| C (clang) | 0 | 0.106 | 124 | 71.1 |
+| Assembly | 0 | 0.156 | 126 | 83.1 |
 | C++ (clang) | 0 | 0.075 | 131 | 75.6 |
-| Assembly | 0 | 0.132 | 134 | 97.5 |
 | C++ | 0 | 0.109 | 137 | 81.3 |
-| C | 0 | 0.129 | 143 | 86.1 |
+| C | 0 | 0.119 | 138 | 82.0 |
 | Rust | 0 | 0.1 | 173 | 103 |
 | Go | 0 | 0.204 | 248 | 164 |
 | C# | 0 | 0.598 | 307 | 275 |
@@ -146,11 +146,11 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 0.061 | 0.087 | 0.0004 | 0.0004 |
+| C (clang) | 0.052 | 0.083 | 0.0004 | 0.0004 |
+| Assembly | 0.044 | 0.092 | 0.0004 | 0.0004 |
 | C++ (clang) | 0.074 | 0.077 | 0.00049 | 0.00049 |
-| Assembly | 0.076 | 0.09 | 0.0004 | 0.0004 |
 | C++ | 0.076 | 0.082 | 0.00045 | 0.00045 |
-| C | 0.06 | 0.08 | 0.0004 | 0.0004 |
+| C | 0.048 | 0.082 | 0.0004 | 0.0004 |
 | Rust | 0.098 | 0.182 | 0.0006 | 0.0006 |
 | Go | 0.18 | 0.298 | 0.001 | 0.001 |
 | C# | 0.189 | 0.268 | 0.00075 | 0.00075 |
@@ -161,11 +161,11 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 0.927 | 9.3 | 0.0002 | 0.0002 |
+| C (clang) | 0.734 | 9.1 | 0.0002 | 0.0002 |
+| Assembly | 0.573 | 10.3 | 0.0002 | 0.0002 |
 | C++ (clang) | 0.784 | 8.4 | 0.00022 | 0.00022 |
-| Assembly | 0.776 | 10.0 | 0.0003 | 0.0003 |
 | C++ | 0.901 | 9.0 | 0.00026 | 0.00026 |
-| C | 0.766 | 8.6 | 0.0002 | 0.0002 |
+| C | 0.684 | 8.6 | 0.0002 | 0.0002 |
 | Rust | 1.2 | 20.1 | 0.0004 | 0.0004 |
 | Go | 2.3 | 34.0 | 0.00088 | 0.00088 |
 | C# | 1.5 | 29.3 | 0.00052 | 0.00052 |
@@ -176,18 +176,18 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 15.3 | 0.01 | 3.7 | 3.7 |
+| C (clang) | 7.9 | 0.01 | 3.7 | 3.7 |
+| Assembly | 8.9 | 0.01 | 3.7 | 3.7 |
 | C++ (clang) | 15.2 | 0 | 3.7 | 3.7 |
-| Assembly | 16.3 | 0.01 | 3.7 | 3.7 |
 | C++ | 15.2 | 0 | 3.7 | 3.7 |
-| C | 15.3 | 0.01 | 3.7 | 3.7 |
+| C | 7.9 | 0.01 | 3.7 | 3.7 |
 | Rust | 15.3 | 0 | 3.7 | 3.7 |
 | Go | 15.7 | 0.0062 | 3.7 | 3.7 |
 | C# | 5.6e-05 | 0.006 | 3.7 | 3.7 |
 | JavaScript | 15.3 | 0.07 | 3.7 | 3.7 |
 | Python | 9.4 | 0.0085 | 3.7 | 3.7 |
 
-Builds: C (clang) C23, -O3 -march=native -flto; C++ (clang) clanclang++ -std=c++23 -O3 -march=native -flto; Assembly GNU as 2.46.1-1.fc44, hand-written x86-64, System V ABI; C++ g++ -std=c++23 -O3 -march=native -flto; C C23, -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, numpy
+Builds: C (clang) C23, -O3 -march=native -flto; Assembly GNU as 2.46.1-1.fc44, hand-written x86-64, System V ABI; C++ (clang) clanclang++ -std=c++23 -O3 -march=native -flto; C++ g++ -std=c++23 -O3 -march=native -flto; C C23, -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, numpy
 
 <!-- BENCHMARK:END -->
 
@@ -224,6 +224,21 @@ machine with 3 MiB of last-level cache. The loop was not computing, it was
 waiting. Naming those addresses six frontier entries ahead was worth another 27%
 in C#, 22% in Rust, 17% in the assembly and 13% in C — nothing changed except
 when the misses were allowed to start.
+
+*The width.* If the array is what you are waiting on, make it smaller. Nothing in
+a mark needed 32 bits: a depth takes 4, the frontier side 1, leaving 11 for the
+generation stamp — 2047 solves between clears, and a 7.3 MB clear at that
+interval is 0.3 µs per solve. Storing a depth rather than a parent is what buys
+the room; the path is recovered afterwards by stepping to whichever neighbour is
+one level shallower, forty-odd lookups against 150,000 edges made cheaper. It
+also makes the inner-loop store loop-invariant. Halving the array was worth 16%
+in C and **40% in the assembly**, which is what finally put hand-written code
+ahead of the compiler.
+
+> **Fairness note.** The 16-bit mark has landed in C and the assembly so far.
+> C++, Rust, Go, C# and JavaScript still carry the 32-bit version, so their rows
+> below are behind by roughly what the change is worth. The ranking between those
+> five is unaffected; the gap to the top two is partly this and not the language.
 
 Together these took the compiled spread from 13× to 3.1×, and C, C++ and
 hand-written assembly now sit within 27% of each other. Almost everything that
@@ -313,8 +328,8 @@ of the answer are worth having, and [`asm/README.md`](asm/README.md) works
 through the disassembly line by line.
 
 It **wins on size** — 46 KB against C's 52 KB, and 27 KB against 48 KB stripped —
-and **ties C++ exactly** on the search (both 0.076 ms), while the table builds
-are level with C's. It trails C itself by 27%.
+**ties C on the table build**, and is now **8% faster than C on the search**
+(0.044 ms against 0.048), the fastest of the ten variants measured.
 
 Getting there is the part worth reading, because the first answer was wrong.
 Disassembling both inner loops turned up three differences from GCC's output.
@@ -330,15 +345,21 @@ inner-loop store loop-invariant, where the assembly stores *parent and move* and
 rebuilds the value on every edge. The write-up said the compiler had not
 out-coded the assembly, the C author had out-designed it.
 
-That was wrong, and the profiler said so plainly once asked the right question:
-69% of the time was the mark load, and the assembly's search — unlike its table
-build — was not prefetching. Adding it closed the gap in one change, 87 → 72 µs.
-Applying the same hint to C then moved C too, which is why 27% remains rather
-than nothing.
+That was wrong twice over, and the profiler said so plainly once asked the right
+question. 69% of the time was the mark load, and the assembly's search — unlike
+its own table build — was not prefetching. Adding it closed most of the gap in
+one change, 87 → 72 µs. Then the deeper point: if the wait is on that array, the
+array is the thing to change. Narrowing the mark from 32 to 16 bits took it from
+73 to 44 µs and put it ahead of C.
 
-The honest summary is duller than the first one and more useful: hand-written
-assembly is competitive here, and the two times it looked beaten it was missing
-an optimization rather than losing to the compiler's code generation.
+Which retires the earlier conclusion entirely. Storing a parent instead of a
+depth *was* the problem — not because it made a store non-invariant, as first
+claimed, but because it spent 22 bits that the cache could not afford. The fix
+was the one the analysis had described and dismissed as too expensive.
+
+The honest summary is duller than either wrong version: hand-written assembly is
+competitive here and can win, and both times it looked beaten it was missing an
+optimization rather than losing to the compiler's code generation.
 
 ## Correctness
 

@@ -29,6 +29,10 @@ jobs:
         include:
           - { compiler: gcc-14, install: gcc-14 }
           - { compiler: clang, install: clang }
+    env:
+      # A shared runner is not the target machine, and its CPU advertises
+      # feature combinations that -march=native turns into -Werror failures.
+      ARCH: -march=x86-64-v2
     name: c (${{ matrix.compiler }})
     defaults: { run: { working-directory: c } }
     steps:
@@ -45,8 +49,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # clang needs a libstdc++ recent enough for std::expected, which is
+          # what g++-14 brings along.
           - { compiler: g++-14, install: g++-14 }
-          - { compiler: clang++, install: clang }
+          - { compiler: clang++, install: clang g++-14 }
+    env:
+      ARCH: -march=x86-64-v2
     name: cpp (${{ matrix.compiler }})
     defaults: { run: { working-directory: cpp } }
     steps:

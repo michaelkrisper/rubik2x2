@@ -9,8 +9,12 @@ CC ?= gcc
 
 STANDARD := -std=c23
 WARNINGS := -Wall -Wextra -Werror
-OPTIMISE := -O3 -march=native -flto
-BUILD_ID := C23, -O3 -march=native -flto
+# -march=native tunes for the machine doing the build. Override ARCH to build
+# something portable, which CI does: a shared runner is not the target machine,
+# and its CPU can carry feature combinations that trip -Werror.
+ARCH ?= -march=native
+OPTIMISE := -O3 $(ARCH) -flto
+BUILD_ID := C23, -O3 $(ARCH) -flto
 
 # -std=c23 is strict ISO, which hides POSIX declarations (pthread barriers,
 # clock_gettime, isatty). Asking for POSIX.1-2008 explicitly brings them back

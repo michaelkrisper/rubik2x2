@@ -37,7 +37,10 @@ jobs:
         with: { python-version: "3.14" }
 
       - name: Python venv (the harness runs python via python/.venv)
-        run: python -m venv python/.venv
+        # numpy is the measured configuration -- see SPEC.md section 7.
+        run: |
+          python -m venv python/.venv
+          python/.venv/bin/pip install --quiet numpy
 
       - name: Describe the machine
         run: |
@@ -50,6 +53,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Measure (sequential, one implementation at a time)
+        # Portable arch: the runner is not the machine the numbers describe.
+        env:
+          ARCH: -march=x86-64-v2
         run: python3 tools/measure.py
 
       - name: Report

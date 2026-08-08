@@ -10,7 +10,11 @@
 CXX ?= g++
 
 STANDARD := -std=c++23
-OPTIMISE := -O3 -march=native -flto
+# -march=native tunes for the machine doing the build. Override ARCH to build
+# something portable, which CI does: a shared runner is not the target machine,
+# and its CPU can carry feature combinations that trip -Werror.
+ARCH ?= -march=native
+OPTIMISE := -O3 $(ARCH) -flto
 WARNINGS := -Wall -Wextra -Werror
 
 BUILD_DESCRIPTION := $(CXX) $(STANDARD) $(OPTIMISE)

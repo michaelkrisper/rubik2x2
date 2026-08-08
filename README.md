@@ -8,12 +8,13 @@ Every solver here returns a *shortest* solution, never merely a working one.
 
 | Implementation | | |
 |---|---|---|
+| [`asm/`](asm/) | x86-64 | hand-written, GNU as, pthreads |
 | [`c/`](c/) | C23 | gcc, pthreads |
 | [`cpp/`](cpp/) | C++23 | g++, `std::jthread` |
 | [`csharp/`](csharp/) | .NET 10 | threads around a `Barrier` |
 | [`go/`](go/) | Go 1.26 | goroutines |
 | [`javascript/`](javascript/) | Node 24 | `worker_threads` |
-| [`python/`](python/) | Python 3.14 | reference implementation |
+| [`python/`](python/) | Python 3.14 | reference implementation, numpy |
 
 Each is written idiomatically for its language rather than transliterated, and
 all of them satisfy the same contract in [SPEC.md](SPEC.md) — same move tables,

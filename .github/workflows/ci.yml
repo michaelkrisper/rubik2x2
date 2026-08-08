@@ -45,14 +45,18 @@ jobs:
 
   cpp:
     runs-on: ubuntu-latest
+    # Only g++ here. The clang C++ build is measured locally (see the benchmark
+    # tables) but cannot be built on this runner: the code needs std::expected,
+    # std::jthread and std::atomic_ref, and neither standard library available to
+    # the runner's clang has all three. libstdc++ hides <expected> unless
+    # __cpp_concepts reports 202002L, which that clang does not; libc++ has
+    # <expected> but no std::jthread. Newer clang has both -- Fedora 44 builds it
+    # clean -- so this is the runner's toolchain, not the code.
     strategy:
       fail-fast: false
       matrix:
         include:
-          # clang builds against libc++: libstdc++ hides <expected> unless
-          # __cpp_concepts reports 202002L, which the runner's clang does not.
           - { compiler: g++-14, install: g++-14, stdlib: '' }
-          - { compiler: clang++, install: clang libc++-dev libc++abi-dev, stdlib: -stdlib=libc++ }
     env:
       ARCH: -march=x86-64-v2
     name: cpp (${{ matrix.compiler }})

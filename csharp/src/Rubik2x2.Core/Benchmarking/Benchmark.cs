@@ -53,7 +53,8 @@ public static class Benchmark
             "bfs",
             setup: null,
             solverFor: static () => Solver.Create(Algorithm.Bfs),
-            retainedBytes: 0,
+            // Evaluated after the warm-up solves, once the lazy mark array exists.
+            retainedBytes: static () => BidirectionalSearch.RetainedBytes,
             scrambles,
             hardest,
             reference);
@@ -62,7 +63,7 @@ public static class Benchmark
             "ida",
             setup: static () => PatternDatabases.Build(),
             solverFor: static () => Solver.Create(Algorithm.Ida),
-            retainedBytes: PatternDatabases.Shared.ByteCount,
+            retainedBytes: static () => PatternDatabases.Shared.ByteCount,
             scrambles,
             hardest,
             reference);
@@ -71,7 +72,7 @@ public static class Benchmark
             "table",
             setup: static () => DistanceTable.Build(),
             solverFor: () => reference.Solve,
-            retainedBytes: reference.ByteCount,
+            retainedBytes: () => reference.ByteCount,
             scrambles,
             hardest,
             reference);
@@ -101,7 +102,7 @@ public static class Benchmark
         string name,
         Action? setup,
         Func<Func<CubeState, string>> solverFor,
-        long retainedBytes,
+        Func<long> retainedBytes,
         IReadOnlyList<CubeState> scrambles,
         CubeState hardest,
         DistanceTable reference)
@@ -147,7 +148,7 @@ public static class Benchmark
             SetupMs = Round(setupMs),
             AvgMs = Round(averageMs),
             WorstMs = Round(worstMs),
-            PeakMb = Round((retainedBytes + allocated) / 1e6),
+            PeakMb = Round((retainedBytes() + allocated) / 1e6),
             Optimal = optimal,
         };
     }

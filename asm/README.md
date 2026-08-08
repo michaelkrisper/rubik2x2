@@ -70,7 +70,7 @@ suite `_Static_assert`s a matching C struct against them.
 
 **Memory.** Everything of fixed size is `.bss` — the coordinate tables
 (415 KB), the two pattern databases, the parallel context. Only the two big
-arrays are dynamic: `bfs_prepare()` `calloc`s the 14.7 MB mark array once for
+arrays are dynamic: `bfs_prepare()` `calloc`s the 7.3 MB mark array once for
 the life of the process, and `table_create()` `calloc`s 3.7 MB per table.
 Tables are addressed by shifting rather than multiplying: rows of six moves are
 padded to eight, so `perm_wide[q]` is at `q << 5` and `orient_child[r]` at
@@ -126,9 +126,10 @@ exact distance is admissible.
 
 **Why `bfs` marks a flat array.** A state is already a dense integer below
 3,674,160, so hashing it would be work spent deriving an index from something
-that is one. One `uint32` per state holds the arriving move, the parent, the
-frontier and a 6-bit generation stamp, so a solve bumps a counter instead of
-clearing 14.7 MB. Six bits give 62 solves between real clears.
+that is one. One `uint16` per state holds the depth, the frontier and an 11-bit
+generation stamp, so a solve bumps a counter instead of clearing 7.3 MB. Eleven
+bits give 2,046 solves between real clears, and the path is rebuilt afterwards
+by asking which neighbour sits one level shallower under the same stamp.
 
 **The parallel table build** uses the spec's compare-exchange option, not
 per-worker buffers: on this problem the merge *is* the work, since every one of
@@ -293,11 +294,11 @@ and the store. Doing the same in assembly is *slower*: `[r12 + rax*4]` is folded
 into both instructions for free, so the explicit `lea` adds an instruction to
 save nothing.
 
-**What is left is not a coding difference but a design one.** Profiling says 69%
-of the remaining time sits in six identical instructions — `mov ecx, [r12+rax*4]`,
-the mark load — and per child the assembly actually executes *fewer* instructions
-than GCC does, twelve against fifteen. The gap survives that, because of what
-each one stores:
+**What was left was not a coding difference but a design one.** Profiling said
+69% of the remaining time sat in six identical instructions — `mov ecx, [r12+rax*4]`,
+the mark load — and per child the assembly actually executed *fewer* instructions
+than GCC did, twelve against fifteen. The gap survived that, because of what
+each one stored at the time:
 
 ```c
 /* C: the value is the same for every state reached this round */
@@ -306,21 +307,23 @@ marks[child] = reached;
 ```
 
 ```asm
-/* assembly: the value carries the parent and the move, so it is rebuilt per child */
+/* assembly, then: the value carried the parent and the move, rebuilt per child */
 mov     edx, ebp
 or      edx, \m
 mov     [r12 + rax*4], edx
 ```
 
-C stores a *depth* and recovers the path afterwards by looking for a neighbour
-one level shallower — a few dozen lookups once per solve. The assembly stores the
-*parent and the move* so the path is a pointer walk. The pointer walk is the
-cheaper reconstruction, but it costs a varying store on every one of ~150,000
-edges instead of a loop-invariant one, and it spends 22 bits per mark that C
-spends on its generation counter instead.
+C stored a *depth* and recovered the path afterwards by looking for a neighbour
+one level shallower — a few dozen lookups once per solve. The assembly stored the
+*parent and the move* so the path was a pointer walk. The pointer walk was the
+cheaper reconstruction, but it cost a varying store on every one of ~150,000
+edges instead of a loop-invariant one, and it spent 22 bits per mark that C
+spent on its generation counter instead.
 
-Closing that would mean adopting C's trail reconstruction wholesale, not writing
-tighter instructions. Which is the honest summary of the whole exercise: hand
+Closing that meant adopting C's trail reconstruction wholesale, not writing
+tighter instructions — and that is what the assembly now does: a mark is a
+16-bit depth, frontier and stamp, the store is loop-invariant per level, and
+the array is half the size. Which is the honest summary of the whole exercise: hand
 assembly matched the compiler on everything memory-bound — the table builds are
 level with each other — and lost where the compiler's *algorithmic* framing was
 simply better. The wins that remain available to assembly are in size, where it
@@ -359,7 +362,7 @@ stripped, since the assembly's `-g` output is the bulkier half of its file.
 Small and slower is the trade here, not a win.
 
 What hand-writing did buy is that the cost model is visible. `MAGIC729`'s
-exactness bound, the 6-bit generation stamp, and the register budget in
+exactness bound, the 11-bit generation stamp, and the register budget in
 `ida_descend` are all decisions in the source rather than the compiler's
 private opinion about them. That is worth something for reading, and nothing
 for the benchmark.
@@ -370,6 +373,6 @@ for the benchmark.
   for `table-par` in the benchmark, matching the C implementation.
 - The optional `show` subcommand (drawing a cube as a net) is not implemented
   here; the four commands SPEC.md section 5 requires all are.
-- `bfs`'s 14.7 MB mark array is allocated once and intentionally never freed:
+- `bfs`'s 7.3 MB mark array is allocated once and intentionally never freed:
   it lives for the process, so the benchmark's per-solve cost does not include
   it. Every other allocation is balanced.

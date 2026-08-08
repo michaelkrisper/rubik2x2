@@ -6,11 +6,11 @@
 /* Frontier entries of lookahead for the mark prefetch. Measured. */
 #define BFS_LOOKAHEAD 6
 
-/* How a visited state is recorded, packed into one uint32_t:
+/* How a visited state is recorded, packed into one uint16_t:
  *
  *     bits  0..3   its distance from this frontier's root
  *     bit   4      which frontier claimed it
- *     bits  5..31  generation stamp
+ *     bits  5..15  generation stamp
  *
  * A cube state is already a dense integer below COORD_STATES, so the visited set
  * wants no hash table: one flat array subscripted by the state itself answers
@@ -19,13 +19,14 @@
  * version kept two open-addressed sets and a node pool per solve; hashing and
  * probing a number that was already a perfect index dominated the run time.
  *
- * The array is 14.7 MB, far too big to clear per solve, so marks carry a
+ * The array is 7.3 MB, far too big to clear per solve, so marks carry a
  * generation stamp: a solve bumps a counter and everything left by earlier
  * solves reads as unvisited. That is why the mark stores a *distance* and not a
- * parent state: a parent needs 22 bits and leaves only 6 for the stamp, so every
- * 63rd solve pays to zero the whole array -- a fifth of the average solve, all
- * of it memset. A distance needs 4 bits, leaves 27, and the clear happens once
- * in 134 million solves, which is to say never.
+ * parent state: a parent needs 22 bits and forces a wider mark, and the random
+ * mark load is what the whole search waits on -- half the array is half the
+ * cache footprint. A distance needs 4 bits, leaves 11 for the stamp, and the
+ * 7.3 MB clear happens once in 2,046 solves -- tenths of a microsecond per
+ * solve, amortized.
  *
  * Distances are enough to rebuild the path because breadth-first marks are exact:
  * from a node at distance d, exactly the neighbours at d-1 on the same side are
@@ -54,7 +55,7 @@ typedef struct {
 
 /* The working set of one solve, kept alive between solves so the mark array is
  * allocated once. bfs_solve is not thread-safe; nothing in this program solves
- * concurrently, and a 14.7 MB allocation per solve would cost far more than the
+ * concurrently, and a 7.3 MB allocation per solve would cost far more than the
  * search it serves. bfs_release hands it all back. */
 static uint16_t *bfs_marks;
 static uint32_t bfs_generation;
@@ -188,7 +189,7 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
 
         for (uint32_t i = 0; i < level->count && by == COORD_MOVES; i++) {
             /* Name the mark words this loop wants a few entries from now: one
-             * random word of a 14.7 MB array per edge, against 3 MiB of cache. */
+             * random word of a 7.3 MB array per edge, against 3 MiB of cache. */
             if (i + BFS_LOOKAHEAD < level->count) {
                 const uint32_t ahead = level->at[i + BFS_LOOKAHEAD];
                 const uint32_t *const p = tables->perm_by_q[ahead / COORD_ORIENTATIONS];

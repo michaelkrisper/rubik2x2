@@ -65,8 +65,10 @@
     .text
 
 /* One child.  r10/r11 = the two move rows, r12 = marks, rdi = next-level
- * write pointer, rbp = gen|side|parent<<3, r8d = side, r9d = generation. */
-/* One child, laid out so the common case is straight-line.
+ * write pointer, rbp = gen|side|(depth+1) -- the loop-invariant mark value --
+ * r8d = side, r9d = generation.
+ *
+ * Laid out so the common case is straight-line.
  *
  * Nearly every edge reaches a state nobody has claimed yet, so that path falls
  * through with no taken branch; the already-seen handling lives out of line at

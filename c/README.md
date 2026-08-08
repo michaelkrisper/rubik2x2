@@ -75,25 +75,27 @@ the setup entirely and would make the table look free.
 
 **Memory reporting.** `peak_mb` is the memory each algorithm actually holds
 while solving, reported by the solver itself rather than sampled from the OS:
-the 14.7 MB mark array and its level buffers for `bfs`, the two pattern
+the 7.3 MB mark array and its level buffers for `bfs`, the two pattern
 databases for `ida`, the 3.67 MB byte array for `table`. Sampling RSS would not
 work here — glibc never returns the peak to the kernel, so a delta measured
 after the first algorithm would be zero for every later one.
 
 **Why `bfs` is not a hash set.** A cube state is *already* a dense integer below
 3,674,160, so hashing it is work spent to derive an index from something that is
-one. `bfs.c` marks visited states in a flat `uint32_t` array subscripted by the
+one. `bfs.c` marks visited states in a flat `uint16_t` array subscripted by the
 state itself: one load says whether a state has been seen, by which frontier and
-how deep, and one store records a child. The array is 14.7 MB and lives for the
+how deep, and one store records a child. The array is 7.3 MB and lives for the
 process, because a solve cannot afford to allocate or clear it — so a mark also
 carries a **generation stamp**, and a solve bumps a counter instead of zeroing
-14.7 MB. Everything an earlier solve left behind reads as unvisited.
+7.3 MB. Everything an earlier solve left behind reads as unvisited.
 
 That stamp is why a mark stores a *distance* and not a parent state. A parent
-needs 22 bits and leaves only 6 for the stamp, so every 63rd solve would have to
-clear the array for real — measured at a fifth of the average solve, all of it
-`memset`. A distance needs 4 bits and leaves 27, which puts the clear at once
-in 134 million solves. The path is rebuilt without parents because breadth-first
+needs 22 bits, which forces a 32-bit mark and leaves only 6 for the stamp, so
+every 63rd solve would have to clear the array for real — measured at a fifth of
+the average solve, all of it `memset`. A distance needs 4 bits, which fits the
+whole mark in 16 — depth, frontier bit and an 11-bit stamp — halving the array's
+cache footprint and putting the clear at once in 2,046 solves. The path is
+rebuilt without parents because breadth-first
 marks are exact: from a node at distance `d`, a neighbour at `d - 1` under the
 same stamp and frontier is a parent, and there are only six neighbours to try.
 A few dozen lookups once per solve buy back a store on every one of ~150,000
@@ -101,7 +103,7 @@ edges — and the store that remains is a constant for the whole level.
 
 Against the two open-addressed sets and node pools this replaced: **0.212 →
 0.075 ms** average and **3.79 → 1.09 ms** on the antipodal position, best of
-five runs each. The cost is `peak_mb`, 1.4 → 15.3, which is the honest trade:
+five runs each. The cost is `peak_mb`, 1.4 → 8.9, which is the honest trade:
 the search now rents the whole state space instead of paying per node.
 
 Tried and reverted: 2 MB pages for the mark array (`aligned_alloc` +

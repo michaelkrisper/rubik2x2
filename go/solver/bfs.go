@@ -8,12 +8,11 @@ import (
 	"github.com/michaelkrisper/rubik2x2/go/cube"
 )
 
-// How a visited state is recorded in the mark table, packed into one uint32:
+// How a visited state is recorded in the mark table, packed into one uint16:
 //
-//	bits  0..2   the move that arrived here (rootMove for a frontier root)
-//	bits  3..24  the state it arrived from (22 bits; 3,674,160 < 2^22)
-//	bit   25     which frontier claimed it
-//	bits 26..31  generation stamp
+//	bits  0..3   its distance from this frontier's root
+//	bit   4      which frontier claimed it
+//	bits  5..15  generation stamp
 //
 // A cube state is already a dense integer below coords.NStates, so the
 // visited set can be a flat array indexed by the state itself — no hashing, no
@@ -21,39 +20,43 @@ import (
 // version put ~72% of BFS time in runtime.memhash32 and the map probe loop, all
 // of it spent hashing a number that was already a perfect index.
 //
-// The generation stamp is what makes reusing that array cheap: a solve bumps the
-// generation rather than clearing 14.7 MB, so marks left by earlier solves read
-// as unvisited. Six bits give 63 solves between real clears.
+// The mark records a distance, not a parent state: a parent needs 22 bits and
+// forces the word to 32, while a distance fits in 4 and halves the table to
+// 7.3 MB — the win is cache footprint, one random word per edge. Distances are
+// enough to rebuild the path because breadth-first marks are exact: from a node
+// at distance d, exactly the neighbours at d-1 under the same tag are parents,
+// and trail finds one by trying each move's inverse — a few dozen lookups once
+// per solve, against a saved store on every edge.
+//
+// The generation stamp is what makes reusing that array cheap: a solve bumps
+// the generation rather than clearing 7.3 MB, so marks left by earlier solves
+// read as unvisited. Eleven bits give 2,046 solves between real clears.
 const (
-	moveBits   = 3
-	moveMask   = 1<<moveBits - 1
-	rootMove   = moveMask // no real move index reaches 7
-	parentPos  = moveBits
-	parentBits = 22
-	parentMask = 1<<parentBits - 1
-	sidePos    = parentPos + parentBits
-	sideBit    = uint32(1) << sidePos
-	genPos     = sidePos + 1
-	genMask    = ^(sideBit | uint32(parentMask)<<parentPos | moveMask)
-	maxGen     = ^uint32(0)>>genPos - 1
+	depthBits = 4
+	depthMask = 1<<depthBits - 1
+	sidePos   = depthBits
+	sideBit   = uint16(1) << sidePos
+	genPos    = sidePos + 1
+	genMask   = ^(sideBit | uint16(depthMask))
+	maxGen    = ^uint16(0)>>genPos - 1
 )
 
 // scratch is the working set of one solve, kept alive between solves so the
-// 14.7 MB mark table is allocated once. Pooled rather than package-level, so
+// 7.3 MB mark table is allocated once. Pooled rather than package-level, so
 // concurrent callers get one each instead of contending on a lock.
 type scratch struct {
-	marks      []uint32
-	generation uint32
+	marks      []uint16
+	generation uint16
 	buffers    [3][]int32
 }
 
 var scratchPool = sync.Pool{
-	New: func() any { return &scratch{marks: make([]uint32, coords.NStates)} },
+	New: func() any { return &scratch{marks: make([]uint16, coords.NStates)} },
 }
 
 // stamp begins a solve and returns the tag its marks carry. Clearing happens
 // only when the counter wraps.
-func (s *scratch) stamp() uint32 {
+func (s *scratch) stamp() uint16 {
 	if s.generation >= maxGen {
 		clear(s.marks)
 		s.generation = 0
@@ -86,21 +89,29 @@ func BFS(s cube.State) (string, error) {
 	marks, generation := work.marks, work.stamp()
 	tables := coords.MoveTables
 
-	marks[start] = generation | rootMove
-	marks[coords.SolvedIndex] = generation | sideBit | rootMove
+	marks[start] = generation
+	marks[coords.SolvedIndex] = generation | sideBit
 
 	forward := append(work.buffers[0][:0], start)
 	backward := append(work.buffers[1][:0], coords.SolvedIndex)
 	next := work.buffers[2][:0]
 
+	// The two sides advance independently — each round grows only one of
+	// them — so each carries its own level depth, which is what the marks
+	// record.
+	forwardDepth, backwardDepth := uint16(0), uint16(0)
+
 	solution, solved := "", false
 	for range MaxDepth {
 		// Always grow the cheaper side, which keeps both halves shallow.
 		fromGoal := len(backward) < len(forward)
-		level, side := forward, uint32(0)
+		level, side, levelDepth := forward, uint16(0), forwardDepth
 		if fromGoal {
-			level, side = backward, sideBit
+			level, side, levelDepth = backward, sideBit, backwardDepth
 		}
+		// Every state reached this round gets the same mark, so the store
+		// in the inner loop is a constant.
+		reached := generation | side | (levelDepth + 1)
 
 		next = next[:0]
 		meeting, from, by := int32(-1), int32(0), 0
@@ -117,7 +128,7 @@ func BFS(s cube.State) (string, error) {
 					meeting, from, by = child, node, m
 					break
 				}
-				marks[child] = generation | side | uint32(node)<<parentPos | uint32(m)
+				marks[child] = reached
 				next = append(next, child)
 			}
 			if meeting >= 0 {
@@ -126,8 +137,12 @@ func BFS(s cube.State) (string, error) {
 		}
 
 		if meeting >= 0 {
-			reached := trail(marks, from) + string(cube.SolveMoves[by])
-			opposite := trail(marks, meeting)
+			// One trail runs from each root to the meeting point; the
+			// move that joined them belongs to whichever side was
+			// expanding.
+			here, there := generation|side, generation|(side^sideBit)
+			reached := trail(marks, from, here) + string(cube.SolveMoves[by])
+			opposite := trail(marks, meeting, there)
 			if fromGoal {
 				solution = opposite + cube.Invert(reached)
 			} else {
@@ -139,8 +154,10 @@ func BFS(s cube.State) (string, error) {
 
 		if fromGoal {
 			backward, next = next, backward
+			backwardDepth++
 		} else {
 			forward, next = next, forward
+			forwardDepth++
 		}
 		if len(forward) == 0 || len(backward) == 0 {
 			break
@@ -156,18 +173,27 @@ func BFS(s cube.State) (string, error) {
 	return "", fmt.Errorf("%w: no solution within %d moves", cube.ErrUnsolvable, MaxDepth)
 }
 
-// trail walks the marks back to its frontier's root and returns the moves in
-// forward order: the sequence that turns that root into node.
-func trail(marks []uint32, node int32) string {
+// trail returns the moves from node's frontier root down to node, in
+// root-first order.
+//
+// tag is the generation and side bit the frontier's marks carry. A neighbour
+// one step shallower under the same tag is a parent by construction, and the
+// move reaching node from it is the inverse of the one that got there —
+// adjacent indices, which is why the six solve moves are ordered as they are.
+func trail(marks []uint16, node int32, tag uint16) string {
+	tables := coords.MoveTables
 	var moves []byte
-	for {
-		mark := marks[node]
-		move := mark & moveMask
-		if move == rootMove {
-			break
+	for depth := marks[node] & depthMask; depth > 0; depth-- {
+		parentMark := tag | (depth - 1)
+		q, r := node/coords.NOrientations, node%coords.NOrientations
+		for m := range tables {
+			back := tables[m^1].Wide[q] + tables[m^1].Orient[r]
+			if marks[back] == parentMark {
+				moves = append(moves, cube.SolveMoves[m])
+				node = back
+				break
+			}
 		}
-		moves = append(moves, cube.SolveMoves[move])
-		node = int32(mark >> parentPos & parentMask)
 	}
 	for i, j := 0, len(moves)-1; i < j; i, j = i+1, j-1 {
 		moves[i], moves[j] = moves[j], moves[i]

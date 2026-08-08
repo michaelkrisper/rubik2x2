@@ -93,18 +93,20 @@ a cube state is *already* a dense integer below 3,674,160, so hashing it is work
 spent deriving an index from something that is one, and ~90,000 entries per
 solve is ~7 MB of garbage handed to the collector on every call.
 
-It is now a module-level `Uint32Array(3_674_160)` subscripted by the state
+It is now a module-level `Uint16Array(3_674_160)` subscripted by the state
 itself. One load says whether a state has been seen, by which frontier and how
 deep; one store records a child. Each mark packs a distance in bits 0–3, the
-frontier in bit 4, and a **generation stamp** above that. The stamp is what
-makes reuse cheap: 14.7 MB is far too much to clear per solve, so a solve bumps
-a counter and every mark an earlier solve left behind reads as unvisited.
+frontier in bit 4, and a **generation stamp** in bits 5–15. The stamp is what
+makes reuse cheap: 7.3 MB is far too much to clear per solve, so a solve bumps
+a counter and every mark an earlier solve left behind reads as unvisited; the
+real clear happens once per 2,046 solves. Sixteen-bit marks halve the array
+against a 32-bit layout, and the cache footprint is the point — every edge of
+the search loads one random word of it.
 
-Storing a *distance* rather than a parent state is what buys 27 stamp bits — a
-parent needs 22 and would leave 6, so every 63rd solve would have to zero the
-whole array for real. Paths are rebuilt without parents because breadth-first
-marks are exact: from a node at distance `d`, a neighbour at `d - 1` under the
-same stamp and frontier is a parent, and there are only six neighbours to try.
+Storing a *distance* rather than a parent state is what lets a mark fit in 16
+bits at all — a parent needs 22. Paths are rebuilt without parents because
+breadth-first marks are exact: from a node at distance `d`, a neighbour at
+`d - 1` under the same stamp and frontier is a parent, and only six to try.
 That is a few dozen lookups once per solve, against a store saved on each of
 ~150,000 edges; the store that remains is a constant for the whole level.
 
@@ -206,7 +208,7 @@ Notes on how the numbers are produced:
 - `avg_ms` and `worst_ms` repeat the workload until at least a second has
   passed, so a 5 µs table lookup is measured rather than the clock.
 - `peak_mb` is best effort: what the algorithm keeps resident (its pattern
-  databases, its distance table, or `bfs`'s 14.7 MB mark array) plus the heap
+  databases, its distance table, or `bfs`'s 7.3 MB mark array) plus the heap
   growth of one hard solve, after forcing a collection. It is read *after* the
   algorithm has run, because `bfs` allocates its marks on the first solve and
   then keeps them.

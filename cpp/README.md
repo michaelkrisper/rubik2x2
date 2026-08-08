@@ -207,10 +207,12 @@ Two changes, both measured on an idle machine and both kept because they paid.
 
 **The frontier hash maps became one flat array** (`src/bfs.cpp`). A cube state is
 already a dense index below 3,674,160, so hashing it to look it up was pure
-overhead. The visited set is now one `uint32_t` per state packing the arriving
-move, the parent, which frontier claimed it and a generation stamp — so a solve
-bumps a counter instead of clearing 14.7 MB, and each edge costs one array read
-and one write rather than a lookup, a second lookup and an insert.
+overhead. The visited set is now one `std::uint16_t` per state packing the
+distance, which frontier claimed it and a generation stamp — so a solve bumps a
+counter instead of clearing 7.3 MB, and each edge costs one array read and one
+write rather than a lookup, a second lookup and an insert. The path is rebuilt
+afterwards from the distances alone: from a node at depth `d`, whichever
+neighbour reads `d - 1` under the same stamp and frontier is a parent.
 
 | | before | after | |
 |---|---|---|---|

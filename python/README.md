@@ -192,7 +192,7 @@ than if they had worked, because the reason is the same one every time.
 
 **Replacing the frontier dictionaries with a flat array.** A cube state is a
 dense integer below 3,674,160, so the visited set can be an array subscripted by
-the state itself, with a packed generation stamp instead of clearing 14.7 MB.
+the state itself, with a packed generation stamp instead of clearing megabytes.
 That is worth 4.7× in C#, 4.4× in Go and 2.1× in Rust. In CPython:
 
 | | avg per solve | |

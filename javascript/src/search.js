@@ -12,29 +12,31 @@
  * is a shortest solution -- no heuristic and no tie-breaking required.
  *
  * The visited set is not a `Map`. A cube state is already a dense integer below
- * `N_STATES`, so a `Uint32Array` subscripted by the state itself answers "seen,
+ * `N_STATES`, so a `Uint16Array` subscripted by the state itself answers "seen,
  * by which side, how far in" in one load and records a child in one store -- no
  * hashing, no boxing, and nothing for the garbage collector to walk. Each mark
  * packs:
  *
  * | bits    | meaning                                     |
  * |---------|---------------------------------------------|
- * | `0..4`  | its distance from this frontier's root      |
+ * | `0..3`  | its distance from this frontier's root      |
  * | `4`     | which frontier claimed it                   |
- * | `5..31` | generation stamp                            |
+ * | `5..15` | generation stamp                            |
  *
- * The array is 14.7 MB and lives at module scope, allocated once: clearing it
+ * The array is 7.3 MB and lives at module scope, allocated once: clearing it
  * per solve would cost more than the search. The generation stamp is what makes
  * that reuse safe -- a solve bumps a counter and every mark left by an earlier
- * solve reads as unvisited, so a real clear happens once in 67 million solves.
+ * solve reads as unvisited, so a real clear happens once in 2,046 solves and
+ * ages out old marks instead of paying a fill on every one. Sixteen-bit marks
+ * halve the array against a 32-bit layout, and that cache footprint is the win:
+ * every edge of the search loads one random word of it.
  *
- * Storing a *distance* rather than a parent state is what buys those 27 stamp
- * bits: a parent needs 22 and would leave 6, so every 63rd solve would have to
- * zero the whole array. Distances are enough to rebuild the path, because
- * breadth-first marks are exact -- from a node at distance `d`, a neighbour at
- * `d - 1` under the same stamp and side bit is a parent, and there are only six
- * neighbours to try. That costs a few dozen lookups once per solve, against a
- * store saved on every one of some 150,000 edges.
+ * Storing a *distance* rather than a parent state is what lets a mark fit in 16
+ * bits at all: a parent needs 22. Distances are enough to rebuild the path,
+ * because breadth-first marks are exact -- from a node at distance `d`, a
+ * neighbour at `d - 1` under the same stamp and side bit is a parent, and there
+ * are only six neighbours to try. That costs a few dozen lookups once per solve,
+ * against a store saved on every one of some 150,000 edges.
  *
  * @module search
  */
@@ -49,12 +51,10 @@ const DEPTH_BITS = 4; // depths never exceed 8, and MAX_DEPTH fits regardless
 const DEPTH_MASK = (1 << DEPTH_BITS) - 1;
 const SIDE_BIT = 1 << DEPTH_BITS;
 const GEN_POS = DEPTH_BITS + 1;
-const GEN_MASK = ~(SIDE_BIT | DEPTH_MASK);
-// Kept below 2^26 so that `generation << GEN_POS` stays a non-negative int32 and
-// every mark compares as the same kind of number V8 keeps in a Smi.
-const MAX_GEN = (1 << 26) - 1;
+const GEN_MASK = 0xffff & ~(SIDE_BIT | DEPTH_MASK);
+const MAX_GEN = (0xffff >> GEN_POS) - 1;
 
-/** @type {Uint32Array | null} */
+/** @type {Uint16Array | null} */
 let marks = null;
 let generation = 0;
 
@@ -76,7 +76,7 @@ export function retainedBytes() {
  * @returns {number}
  */
 function stamp() {
-  marks ??= new Uint32Array(N_STATES);
+  marks ??= new Uint16Array(N_STATES);
   if (generation >= MAX_GEN) {
     marks.fill(0);
     generation = 0;
@@ -114,7 +114,7 @@ function reserve(buffer, wanted) {
  * @returns {string}
  */
 function trail(node, tag, tables) {
-  const seen = /** @type {Uint32Array} */ (marks);
+  const seen = /** @type {Uint16Array} */ (marks);
   const moves = [];
   for (let depth = seen[node] & DEPTH_MASK; depth > 0; depth--) {
     const parent = tag | (depth - 1);
@@ -147,7 +147,7 @@ export function solve(state, maxDepth = MAX_DEPTH) {
   const tables = wideTables();
   const width = N_ORIENTATIONS;
   const stampedAt = stamp();
-  const seen = /** @type {Uint32Array} */ (marks);
+  const seen = /** @type {Uint16Array} */ (marks);
 
   // The six move tables are hoisted into locals and the loop over them unrolled:
   // an indexed `tables[position].permutation` load in the innermost loop is what

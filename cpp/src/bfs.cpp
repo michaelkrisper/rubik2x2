@@ -13,64 +13,64 @@
 namespace rubik {
 namespace {
 
-/// How a visited state is recorded, packed into one `std::uint32_t`:
+/// How a visited state is recorded, packed into one `std::uint16_t`:
 ///
-///     bits  0..2   the move that arrived here (`root_move` for a root)
-///     bits  3..24  the state it arrived from (3,674,160 < 2^22)
-///     bit   25     which frontier claimed it
-///     bits 26..31  generation stamp
+///     bits  0..3   its distance from this frontier's root
+///     bit   4      which frontier claimed it
+///     bits  5..15  generation stamp
 ///
 /// A cube state is already a dense index below `coords::state_count`, so the
 /// visited set is a flat array subscripted by the state itself rather than a
 /// hash map: no hashing, no probing, and one array write per edge instead of a
 /// lookup in one map, a lookup in the other and an insert.
-constexpr std::uint32_t move_bits = 3;
-constexpr std::uint32_t move_mask = (1u << move_bits) - 1;
-constexpr std::uint32_t root_move = move_mask;  // no real move index reaches 7
-constexpr std::uint32_t parent_position = move_bits;
-constexpr std::uint32_t parent_bits = 22;
-constexpr std::uint32_t parent_mask = (1u << parent_bits) - 1;
-constexpr std::uint32_t side_position = parent_position + parent_bits;
-constexpr std::uint32_t side_bit = 1u << side_position;
-constexpr std::uint32_t generation_position = side_position + 1;
-constexpr std::uint32_t generation_mask =
-    ~(side_bit | (parent_mask << parent_position) | move_mask);
-constexpr std::uint32_t max_generation = (0xFFFF'FFFFu >> generation_position) - 1;
+///
+/// The mark stores a *distance* rather than a parent state: a parent needs 22
+/// bits and forces the mark to 32, doubling an array whose whole cost is cache
+/// footprint. Distances are enough to rebuild the path because breadth-first
+/// marks are exact: from a node at distance d, exactly the neighbours at d-1 on
+/// the same side are parents, and there are only six neighbours to try.
+constexpr std::uint16_t depth_bits = 4;
+constexpr std::uint16_t depth_mask = (1u << depth_bits) - 1;
+constexpr std::uint16_t side_position = depth_bits;
+constexpr std::uint16_t side_bit = 1u << side_position;
+constexpr std::uint16_t generation_position = side_position + 1;
+constexpr std::uint16_t generation_mask =
+    static_cast<std::uint16_t>(~(side_bit | depth_mask));
+constexpr std::uint32_t max_generation = (0xFFFFu >> generation_position) - 1;
 
-static_assert(coords::state_count <= parent_mask, "a state no longer fits the parent field");
-static_assert(solve_moves.size() < root_move, "a move index would collide with the root marker");
+static_assert(max_depth <= depth_mask, "a frontier depth no longer fits the mark");
 
 /// The working set of one solve, kept alive between solves.
 ///
-/// Allocating and zeroing 14.7 MB per solve would cost far more than the search
+/// Allocating and zeroing 7.3 MB per solve would cost far more than the search
 /// itself, so the mark array is allocated once and *aged* rather than cleared: a
 /// solve bumps the generation counter and marks left by earlier solves no longer
-/// match, so they read as unvisited. Six bits give 63 solves between real
-/// clears, which amortises the one memset that is left to nothing.
+/// match, so they read as unvisited. Eleven bits give 2,046 solves between real
+/// clears, which amortises the one fill that is left to nothing.
 class Scratch {
   public:
     /// Begin a solve; returns the tag this solve's marks carry.
-    [[nodiscard]] std::uint32_t stamp() {
+    [[nodiscard]] std::uint16_t stamp() {
         if (generation_ >= max_generation) {
-            std::ranges::fill(marks_, 0u);
+            std::ranges::fill(marks_, std::uint16_t{0});
             generation_ = 0;
         }
         ++generation_;
-        return generation_ << generation_position;
+        return static_cast<std::uint16_t>(generation_ << generation_position);
     }
 
-    [[nodiscard]] std::uint32_t* marks() { return marks_.data(); }
+    [[nodiscard]] std::uint16_t* marks() { return marks_.data(); }
     [[nodiscard]] std::vector<std::uint32_t>& buffer(std::size_t which) { return buffers_[which]; }
 
   private:
-    std::vector<std::uint32_t> marks_ = std::vector<std::uint32_t>(coords::state_count, 0u);
+    std::vector<std::uint16_t> marks_ = std::vector<std::uint16_t>(coords::state_count, 0u);
     std::array<std::vector<std::uint32_t>, 3> buffers_{};
     std::uint32_t generation_ = 0;
 };
 
 /// One `Scratch` per thread. A plain function-local `static` would be a data
 /// race the moment two threads solved at once -- this file has no way to know
-/// that they do not -- and an argument would force the 14.7 MB buffer into the
+/// that they do not -- and an argument would force the 7.3 MB buffer into the
 /// public signature of `solve_bfs`, which the CLI contract fixes. The thread
 /// -local indirection is paid once per solve, not once per node.
 [[nodiscard]] Scratch& scratch() {
@@ -86,16 +86,23 @@ struct Trail {
 
 /// Walk the marks back to this frontier's root, yielding the moves in forward
 /// order: the sequence that turns that root into `node`.
-[[nodiscard]] Trail trail(const std::uint32_t* marks, std::uint32_t node) {
+///
+/// `tag` is the generation and side bit the frontier's marks carry. A neighbour
+/// one step shallower under the same tag is a parent by construction, and the
+/// move reaching `node` from it is the inverse of the one that got there --
+/// adjacent indices in `solve_moves`.
+[[nodiscard]] Trail trail(const std::uint16_t* marks, std::uint32_t node, std::uint16_t tag) {
     Trail out;
-    for (;;) {
-        const std::uint32_t mark = marks[node];
-        const std::uint32_t move = mark & move_mask;
-        if (move == root_move) {
-            break;
+    for (std::uint32_t depth = marks[node] & depth_mask; depth > 0; --depth) {
+        const std::uint16_t parent_mark = static_cast<std::uint16_t>(tag | (depth - 1));
+        for (std::size_t move = 0; move < solve_moves.size(); ++move) {
+            const std::uint32_t back = coords::apply(node, move ^ 1u);
+            if (marks[back] == parent_mark) {
+                out.moves[out.size++] = static_cast<std::uint8_t>(move);
+                node = back;
+                break;
+            }
         }
-        out.moves[out.size++] = static_cast<std::uint8_t>(move);
-        node = (mark >> parent_position) & parent_mask;
     }
     std::ranges::reverse(out.moves.begin(), out.moves.begin() + static_cast<std::ptrdiff_t>(out.size));
     return out;
@@ -113,12 +120,12 @@ Result<Moves> solve_bfs(const State& state) {
     }
 
     Scratch& work = scratch();
-    const std::uint32_t generation = work.stamp();
-    std::uint32_t* const marks = work.marks();
+    const std::uint16_t generation = work.stamp();
+    std::uint16_t* const marks = work.marks();
     const coords::MoveTables& tables = coords::move_tables();
 
-    marks[*start] = generation | root_move;
-    marks[coords::solved_index] = generation | side_bit | root_move;
+    marks[*start] = generation;
+    marks[coords::solved_index] = generation | side_bit;
 
     std::vector<std::uint32_t>& forward = work.buffer(0);
     std::vector<std::uint32_t>& backward = work.buffer(1);
@@ -126,11 +133,21 @@ Result<Moves> solve_bfs(const State& state) {
     forward.assign(1, *start);
     backward.assign(1, coords::solved_index);
 
-    for (int depth = 0; depth < max_depth; ++depth) {
+    // The two sides advance independently -- each round grows only one of them
+    // -- so each carries its own level depth, which is what the marks record.
+    std::uint32_t forward_depth = 0;
+    std::uint32_t backward_depth = 0;
+
+    for (int round = 0; round < max_depth; ++round) {
         // Always grow the cheaper side, which keeps both halves shallow.
         const bool from_goal = backward.size() < forward.size();
         std::vector<std::uint32_t>& growing = from_goal ? backward : forward;
-        const std::uint32_t side = from_goal ? side_bit : 0u;
+        std::uint32_t& growing_depth = from_goal ? backward_depth : forward_depth;
+        const std::uint16_t side = from_goal ? side_bit : std::uint16_t{0};
+        // Every state reached this round gets the same mark, so the store in
+        // the inner loop is a constant.
+        const std::uint16_t reached =
+            static_cast<std::uint16_t>(generation | side | (growing_depth + 1));
 
         following.clear();
         bool met = false;
@@ -139,7 +156,7 @@ Result<Moves> solve_bfs(const State& state) {
         std::size_t by = 0;
 
         for (std::size_t i = 0; i < growing.size(); ++i) {
-            // Every edge touches one random word of a 14.7 MB array, so the
+            // Every edge touches one random word of a 7.3 MB array, so the
             // loop stalls on memory rather than on arithmetic. Naming a later
             // entry's six marks now overlaps those misses with this entry's
             // work; the move tables the addresses come from stay in cache.
@@ -162,7 +179,7 @@ Result<Moves> solve_bfs(const State& state) {
             const auto& orientation = tables.orientation[remainder];
             for (std::size_t move = 0; move < solve_moves.size(); ++move) {
                 const std::uint32_t child = wide[move] + orientation[move];
-                const std::uint32_t mark = marks[child];
+                const std::uint16_t mark = marks[child];
                 if ((mark & generation_mask) == generation) {
                     if ((mark & side_bit) == side) {
                         continue;  // this side has already been here
@@ -173,8 +190,7 @@ Result<Moves> solve_bfs(const State& state) {
                     met = true;
                     break;
                 }
-                marks[child] = generation | side | (node << parent_position) |
-                               static_cast<std::uint32_t>(move);
+                marks[child] = reached;
                 following.push_back(child);
             }
             if (met) {
@@ -186,12 +202,14 @@ Result<Moves> solve_bfs(const State& state) {
             // `reached` runs from the growing side's root to the meeting point,
             // `opposite` from the other root to the same place. Whichever half
             // ends at the goal is the one that gets undone.
-            Trail reached = trail(marks, from);
-            reached.moves[reached.size++] = static_cast<std::uint8_t>(by);
-            const Trail opposite = trail(marks, meeting);
+            const std::uint16_t here = generation | side;
+            const std::uint16_t there = generation | (side ^ side_bit);
+            Trail reached_trail = trail(marks, from, here);
+            reached_trail.moves[reached_trail.size++] = static_cast<std::uint8_t>(by);
+            const Trail opposite = trail(marks, meeting, there);
 
             Moves solution;
-            solution.reserve(reached.size + opposite.size);
+            solution.reserve(reached_trail.size + opposite.size);
             const auto append_forward = [&solution](const Trail& path) {
                 for (std::size_t i = 0; i < path.size; ++i) {
                     solution.push_back(solve_move_chars[path.moves[i]]);
@@ -205,15 +223,16 @@ Result<Moves> solve_bfs(const State& state) {
             };
             if (from_goal) {
                 append_forward(opposite);
-                append_inverted(reached);
+                append_inverted(reached_trail);
             } else {
-                append_forward(reached);
+                append_forward(reached_trail);
                 append_inverted(opposite);
             }
             return solution;
         }
 
         growing.swap(following);
+        ++growing_depth;
         if (forward.empty() || backward.empty()) {
             break;
         }

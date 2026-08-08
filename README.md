@@ -84,46 +84,46 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Version | Table build | Per solve | Break-even | Threaded build |
 |---|---|---|---|---|---|
-| C (clang) | clang version 22.1.8 | 124 ms | 0.0004 ms | 2,384 solves | 1.74× (4 threads) |
-| Assembly | 2.46.1-1.fc44 | 126 ms | 0.0004 ms | 2,893 solves | 1.51× (4 threads) |
-| C++ (clang) | clang version 22.1.8 | 131 ms | 0.00049 ms | 1,774 solves | 1.73× (4 threads) |
-| C++ | C++23 (GCC 16.1.1) | 137 ms | 0.00045 ms | 1,818 solves | 1.68× (4 threads) |
-| C | gcc 16.1.1 | 138 ms | 0.0004 ms | 2,880 solves | 1.68× (4 threads) |
-| Rust | 1.97.1 | 173 ms | 0.0006 ms | 1,780 solves | 1.68× (4 threads) |
-| Go | 1.26.5-X:nodwarf5 | 248 ms | 0.001 ms | 1,380 solves | 1.51× (4 threads) |
-| C# | 10.0.10 | 307 ms | 0.00075 ms | 1,631 solves | 1.12× (4 threads) |
-| JavaScript | 24.18.0 | 421 ms | 0.002 ms | 2,105 solves | 0.69× (4 threads) |
-| Python | 3.14.6 | 731 ms | 0.042 ms | 222 solves | 1.89× (4 threads) |
+| C++ (clang) | clang version 22.1.8 | 132 ms | 0.00051 ms | 2,901 solves | 1.74× (4 threads) |
+| Assembly | 2.46.1-1.fc44 | 133 ms | 0.0004 ms | 2,958 solves | 1.53× (4 threads) |
+| C++ | C++23 (GCC 16.1.1) | 136 ms | 0.00046 ms | 2,852 solves | 1.62× (4 threads) |
+| C (clang) | clang version 22.1.8 | 137 ms | 0.0005 ms | 2,529 solves | 1.73× (4 threads) |
+| Rust | 1.97.1 | 162 ms | 0.0006 ms | 2,403 solves | 1.60× (4 threads) |
+| C | gcc 16.1.1 | 169 ms | 0.0004 ms | 3,202 solves | 1.88× (4 threads) |
+| Go | 1.26.5-X:nodwarf5 | 205 ms | 0.001 ms | 1,591 solves | 1.27× (4 threads) |
+| C# | 10.0.10 | 273 ms | 0.00071 ms | 1,541 solves | 1.10× (4 threads) |
+| JavaScript | 24.18.0 | 405 ms | 0.002 ms | 2,110 solves | 0.66× (4 threads) |
+| Python | 3.14.6 | 740 ms | 0.04 ms | 270 solves | 2.03× (4 threads) |
 
 ### What it cost to get there
 
 | Language | Build from clean | Artifact | Source files | Source lines | Test lines |
 |---|---|---|---|---|---|
-| C (clang) | 1.5 s | 60 KB | 17 | 2,175 | 427 |
+| C++ (clang) | 34.8 s | 261 KB | 9 | 1,371 | 492 |
 | Assembly | 0.1 s | 47 KB | 8 | 3,427 | 644 |
-| C++ (clang) | 34.9 s | 261 KB | 9 | 1,367 | 492 |
-| C++ | 34.2 s | 261 KB | 9 | 1,367 | 492 |
+| C++ | 33.4 s | 261 KB | 9 | 1,371 | 492 |
+| C (clang) | 1.6 s | 60 KB | 17 | 2,175 | 427 |
+| Rust | 10.5 s | 598 KB | 13 | 1,333 | 366 |
 | C | 1.9 s | 52 KB | 17 | 2,175 | 427 |
-| Rust | 10.5 s | 598 KB | 13 | 1,326 | 366 |
-| Go | — | 2.1 MB | 16 | 2,328 | 866 |
-| C# | 3.7 s | 227 KB | 30 | 2,237 | 408 |
-| JavaScript | — | 151 KB | 11 | 1,944 | 694 |
+| Go | 9.4 s | 2.1 MB | 16 | 2,333 | 866 |
+| C# | — | 229 KB | 30 | 2,247 | 408 |
+| JavaScript | — | 151 KB | 11 | 1,946 | 694 |
 | Python | — | 62 KB | 11 | 1,328 | 528 |
 
 ### What it costs just to start
 
 | Language | Startup | Resident at startup | vs. one table lookup |
 |---|---|---|---|
-| C (clang) | 1.6 ms | 1.5 MB | 3,896× |
-| Assembly | 1.7 ms | 1.5 MB | 4,128× |
-| C++ (clang) | 2.8 ms | 3.9 MB | 5,581× |
-| C++ | 2.8 ms | 3.9 MB | 6,160× |
-| C | 1.6 ms | 1.6 MB | 4,050× |
-| Rust | 1.8 ms | 2.2 MB | 3,035× |
-| Go | 8.7 ms | 2.8 MB | 8,424× |
-| C# | 52.0 ms | 26.9 MB | 69,567× |
-| JavaScript | 197 ms | 56.6 MB | 98,736× |
-| Python | 121 ms | 19.5 MB | 2,906× |
+| C++ (clang) | 2.8 ms | 3.9 MB | 5,497× |
+| Assembly | 2.3 ms | 1.5 MB | 5,674× |
+| C++ | 2.9 ms | 3.9 MB | 6,388× |
+| C (clang) | 1.8 ms | 1.6 MB | 3,681× |
+| Rust | 1.8 ms | 2.2 MB | 3,048× |
+| C | 1.6 ms | 1.6 MB | 3,953× |
+| Go | 8.1 ms | 2.8 MB | 7,971× |
+| C# | 59.7 ms | 27.0 MB | 84,031× |
+| JavaScript | 181 ms | 56.6 MB | 90,627× |
+| Python | 120 ms | 19.4 MB | 2,977× |
 
 ### Every measurement
 
@@ -131,63 +131,63 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 0 | 0.106 | 124 | 71.1 |
-| Assembly | 0 | 0.156 | 126 | 83.1 |
-| C++ (clang) | 0 | 0.075 | 131 | 75.6 |
-| C++ | 0 | 0.109 | 137 | 81.3 |
-| C | 0 | 0.119 | 138 | 82.0 |
-| Rust | 0 | 0.1 | 173 | 103 |
-| Go | 0 | 0.204 | 248 | 164 |
-| C# | 0 | 0.598 | 307 | 275 |
-| JavaScript | 0 | 8.8 | 421 | 612 |
-| Python | 0 | 4.4 | 731 | 386 |
+| C++ (clang) | 0 | 0.071 | 132 | 75.8 |
+| Assembly | 0 | 0.136 | 133 | 86.8 |
+| C++ | 0 | 0.109 | 136 | 83.6 |
+| C (clang) | 0 | 0.111 | 137 | 79.1 |
+| Rust | 0 | 0.1 | 162 | 101 |
+| C | 0 | 0.121 | 169 | 90.1 |
+| Go | 0 | 0.217 | 205 | 162 |
+| C# | 0 | 4.1 | 273 | 248 |
+| JavaScript | 0 | 6.0 | 405 | 616 |
+| Python | 0 | 3.4 | 740 | 364 |
 
 **Average per solve, milliseconds (200 scrambles)**
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 0.052 | 0.083 | 0.0004 | 0.0004 |
-| Assembly | 0.044 | 0.092 | 0.0004 | 0.0004 |
-| C++ (clang) | 0.074 | 0.077 | 0.00049 | 0.00049 |
-| C++ | 0.076 | 0.082 | 0.00045 | 0.00045 |
-| C | 0.048 | 0.082 | 0.0004 | 0.0004 |
-| Rust | 0.098 | 0.182 | 0.0006 | 0.0006 |
-| Go | 0.18 | 0.298 | 0.001 | 0.001 |
-| C# | 0.189 | 0.268 | 0.00075 | 0.00075 |
-| JavaScript | 0.202 | 0.28 | 0.002 | 0.002 |
-| Python | 3.3 | 9.6 | 0.042 | 0.039 |
+| C++ (clang) | 0.046 | 0.076 | 0.00051 | 0.00051 |
+| Assembly | 0.045 | 0.093 | 0.0004 | 0.0004 |
+| C++ | 0.048 | 0.082 | 0.00046 | 0.00046 |
+| C (clang) | 0.055 | 0.088 | 0.0005 | 0.0005 |
+| Rust | 0.068 | 0.18 | 0.0006 | 0.0006 |
+| C | 0.053 | 0.081 | 0.0004 | 0.0004 |
+| Go | 0.13 | 0.3 | 0.001 | 0.001 |
+| C# | 0.178 | 0.271 | 0.00071 | 0.00071 |
+| JavaScript | 0.194 | 0.288 | 0.002 | 0.002 |
+| Python | 2.8 | 9.1 | 0.04 | 0.04 |
 
 **Worst case — the antipodal position, milliseconds**
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 0.734 | 9.1 | 0.0002 | 0.0002 |
-| Assembly | 0.573 | 10.3 | 0.0002 | 0.0002 |
-| C++ (clang) | 0.784 | 8.4 | 0.00022 | 0.00022 |
-| C++ | 0.901 | 9.0 | 0.00026 | 0.00026 |
-| C | 0.684 | 8.6 | 0.0002 | 0.0002 |
-| Rust | 1.2 | 20.1 | 0.0004 | 0.0004 |
-| Go | 2.3 | 34.0 | 0.00088 | 0.00088 |
-| C# | 1.5 | 29.3 | 0.00052 | 0.00052 |
-| JavaScript | 3.2 | 30.4 | 0.001 | 0.001 |
-| Python | 51.2 | 1,024 | 0.042 | 0.042 |
+| C++ (clang) | 0.66 | 8.4 | 0.00022 | 0.00022 |
+| Assembly | 0.632 | 10.1 | 0.0002 | 0.0002 |
+| C++ | 0.711 | 9.0 | 0.00026 | 0.00026 |
+| C (clang) | 0.685 | 9.7 | 0.0003 | 0.0003 |
+| Rust | 0.972 | 19.9 | 0.0004 | 0.0004 |
+| C | 0.713 | 8.6 | 0.0003 | 0.0003 |
+| Go | 2.0 | 33.6 | 0.00088 | 0.00088 |
+| C# | 1.5 | 29.5 | 0.00052 | 0.00052 |
+| JavaScript | 2.9 | 30.3 | 0.001 | 0.001 |
+| Python | 41.1 | 1,005 | 0.042 | 0.042 |
 
 **Peak memory while solving, MB**
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
-| C (clang) | 7.9 | 0.01 | 3.7 | 3.7 |
+| C++ (clang) | 7.9 | 0 | 3.7 | 3.7 |
 | Assembly | 8.9 | 0.01 | 3.7 | 3.7 |
-| C++ (clang) | 15.2 | 0 | 3.7 | 3.7 |
-| C++ | 15.2 | 0 | 3.7 | 3.7 |
+| C++ | 7.9 | 0 | 3.7 | 3.7 |
+| C (clang) | 7.9 | 0.01 | 3.7 | 3.7 |
+| Rust | 7.9 | 0 | 3.7 | 3.7 |
 | C | 7.9 | 0.01 | 3.7 | 3.7 |
-| Rust | 15.3 | 0 | 3.7 | 3.7 |
-| Go | 15.7 | 0.0062 | 3.7 | 3.7 |
-| C# | 5.6e-05 | 0.006 | 3.7 | 3.7 |
-| JavaScript | 15.3 | 0.07 | 3.7 | 3.7 |
+| Go | 8.3 | 0.0062 | 3.7 | 3.7 |
+| C# | 8.0 | 0.006 | 3.7 | 3.7 |
+| JavaScript | 7.9 | 0.07 | 3.7 | 3.7 |
 | Python | 9.4 | 0.0085 | 3.7 | 3.7 |
 
-Builds: C (clang) C23, -O3 -march=native -flto; Assembly GNU as 2.46.1-1.fc44, hand-written x86-64, System V ABI; C++ (clang) clanclang++ -std=c++23 -O3 -march=native -flto; C++ g++ -std=c++23 -O3 -march=native -flto; C C23, -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, numpy
+Builds: C++ (clang) clanclang++ -std=c++23 -O3 -march=native -flto; Assembly GNU as 2.46.1-1.fc44, hand-written x86-64, System V ABI; C++ g++ -std=c++23 -O3 -march=native -flto; C (clang) C23, -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; C C23, -O3 -march=native -flto; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, numpy
 
 <!-- BENCHMARK:END -->
 
@@ -203,10 +203,10 @@ service it is free, and the per-solve column is the only one that matters. The
 same ten programs rank almost inversely under those two readings.
 
 **The spread between languages is not one number.** Building the table spans 6×
-(C/clang 123 ms to Python 723 ms), a single table lookup spans 97×, bidirectional
-search spans 39×, and the *artifact* spans 46× the other way (assembly 46 KB to
-Go 2.1 MB). Which language is "fast" depends entirely on which of these you are
-paying for.
+(C++/clang 132 ms to Python 740 ms), a single table lookup spans 100×,
+bidirectional search spans 62×, and the *artifact* spans 45× the other way
+(assembly 47 KB to Go 2.1 MB). Which language is "fast" depends entirely on
+which of these you are paying for.
 
 **Two optimizations mattered more than the choice of language, and both were
 about memory rather than instructions.**
@@ -231,18 +231,17 @@ generation stamp — 2047 solves between clears, and a 7.3 MB clear at that
 interval is 0.3 µs per solve. Storing a depth rather than a parent is what buys
 the room; the path is recovered afterwards by stepping to whichever neighbour is
 one level shallower, forty-odd lookups against 150,000 edges made cheaper. It
-also makes the inner-loop store loop-invariant. Halving the array was worth 16%
-in C and **40% in the assembly**, which is what finally put hand-written code
-ahead of the compiler.
+also makes the inner-loop store loop-invariant. Halving the array was worth
+**40% in the assembly** — which is what finally put hand-written code ahead of
+the compiler — around 35% in C++, roughly 20% in Rust, JavaScript and C#, and
+16% in C. Go, with no prefetch keeping the narrower loads in flight, gained
+only the memory. Every implementation now carries the same 16-bit scheme, so
+the rows above compare like with like.
 
-> **Fairness note.** The 16-bit mark has landed in C and the assembly so far.
-> C++, Rust, Go, C# and JavaScript still carry the 32-bit version, so their rows
-> below are behind by roughly what the change is worth. The ranking between those
-> five is unaffected; the gap to the top two is partly this and not the language.
-
-Together these took the compiled spread from 13× to 3.1×, and C, C++ and
-hand-written assembly now sit within 27% of each other. Almost everything that
-looked like a language gap was one wrong container and one missing hint.
+Together these collapsed the compiled spread from 13× to about 4×, and
+assembly, C++ and C now sit within roughly 20% of each other. Almost everything
+that looked like a language gap was one wrong container, one missing hint, and
+one over-wide word.
 
 Go and JavaScript are the exceptions to the second point, for a reason worth
 recording: neither exposes a prefetch. Go's standard library has no intrinsic,
@@ -327,9 +326,11 @@ The assembly implementation exists to ask what the abstractions cost. Both ends
 of the answer are worth having, and [`asm/README.md`](asm/README.md) works
 through the disassembly line by line.
 
-It **wins on size** — 46 KB against C's 52 KB, and 27 KB against 48 KB stripped —
-**ties C on the table build**, and is now **8% faster than C on the search**
-(0.044 ms against 0.048), the fastest of the ten variants measured.
+It **wins on size** — 47 KB against C's 52 KB, and 27 KB against 48 KB stripped —
+**ties C on the table build**, and is now **faster than C on the search**
+(0.045 ms against 0.053), the fastest of the ten variants measured — though with
+the 16-bit mark ported everywhere, clang's C++ sits within measurement noise of
+it at 0.046.
 
 Getting there is the part worth reading, because the first answer was wrong.
 Disassembling both inner loops turned up three differences from GCC's output.

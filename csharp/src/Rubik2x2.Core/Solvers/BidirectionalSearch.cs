@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.X86;
 namespace Rubik2x2.Solvers;
 
 /// <summary>
@@ -109,6 +111,25 @@ public static class BidirectionalSearch
 
             for (int i = 0; i < count; i++)
             {
+                // Name the mark words this loop wants a few entries from now.
+                // Most of the search sits in one instruction -- the mark load, a
+                // random word of a 14.7 MB array against a few MB of cache -- so
+                // the loop waits on memory, not on arithmetic. Recomputing an
+                // address early lets those misses overlap rather than stall in
+                // turn. A prefetch is only a hint, so being wrong costs nothing.
+                if (Sse.IsSupported && i + PrefetchLookahead < count)
+                {
+                    int ahead = level[i + PrefetchLookahead];
+                    int aheadPermutation =
+                        Math.DivRem(ahead, Coordinates.OrientationCount, out int aheadOrientation);
+                    PrefetchMark(marks, p0[aheadPermutation] + o0[aheadOrientation]);
+                    PrefetchMark(marks, p1[aheadPermutation] + o1[aheadOrientation]);
+                    PrefetchMark(marks, p2[aheadPermutation] + o2[aheadOrientation]);
+                    PrefetchMark(marks, p3[aheadPermutation] + o3[aheadOrientation]);
+                    PrefetchMark(marks, p4[aheadPermutation] + o4[aheadOrientation]);
+                    PrefetchMark(marks, p5[aheadPermutation] + o5[aheadOrientation]);
+                }
+
                 int node = level[i];
                 int permutation = Math.DivRem(node, Coordinates.OrientationCount, out int orientation);
                 if (found + Moves.SolveCount > following.Length)
@@ -277,5 +298,18 @@ public static class BidirectionalSearch
         }
 
         return new string(moves[head..tail]);
+    }
+
+    /// <summary>Frontier entries of lookahead for the mark prefetch. Measured.</summary>
+    private const int PrefetchLookahead = 6;
+
+    /// <summary>Warms the cache line holding one mark word.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe void PrefetchMark(uint[] marks, int index)
+    {
+        fixed (uint* at = &marks[index])
+        {
+            Sse.Prefetch0(at);
+        }
     }
 }

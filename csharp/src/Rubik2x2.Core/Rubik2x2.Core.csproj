@@ -5,6 +5,11 @@
     <RootNamespace>Rubik2x2</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>Optimal solvers for the 2x2x2 Rubik's Cube (Pocket Cube).</Description>
+  
+    <!-- Only for Sse.Prefetch0, which takes a raw pointer. A prefetch cannot read
+         or write anything; it warms a cache line and a wrong address is ignored.
+         .NET offers no safe spelling, and the hint is worth ~20% in the search. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

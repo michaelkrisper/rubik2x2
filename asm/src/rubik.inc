@@ -55,9 +55,10 @@
     .equ MARK_ROOT,     7
     .equ MARK_PARSH,    3
     .equ MARK_PARMASK,  0x3FFFFF
-    .equ MARK_SIDEBIT,  0x02000000
-    .equ MARK_GENMASK,  0xFC000000
-    .equ MARK_GENSH,    26
-    .equ MARK_MAXGEN,   62
+    .equ MARK_DEPTHMASK, 0x000F         /* depth within a frontier, 0..14 */
+    .equ MARK_SIDEBIT,  0x0010
+    .equ MARK_GENMASK,  0xFFE0
+    .equ MARK_GENSH,    5
+    .equ MARK_MAXGEN,   2046
 .equ PREFETCH_LOOKAHEAD, 8
 .equ BFS_LOOKAHEAD, 6

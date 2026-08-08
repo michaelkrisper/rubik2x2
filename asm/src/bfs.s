@@ -8,17 +8,25 @@
  *
  * The visited set is a flat array indexed by the state itself -- a state is
  * already a dense integer below 3,674,160, so hashing it would be hashing a
- * perfect index.  One uint32 per state carries everything the search needs:
+ * perfect index.  One uint16 per state is enough:
  *
- *   bits  0..2   the move that arrived here (7 = a frontier root)
- *   bits  3..24  the state it arrived from (3,674,160 < 2^22)
- *   bit   25     which frontier claimed it
- *   bits 26..31  generation stamp
+ *   bits  0..3   depth within this frontier
+ *   bit   4      which frontier claimed it
+ *   bits  5..15  generation stamp
  *
- * The generation stamp is what makes reusing the 14.7 MB array cheap: a solve
- * bumps the counter instead of clearing the array, so marks left by earlier
- * solves read as unvisited.  Six bits give 62 solves between real clears, and
- * a clear costs about as much as one solve.
+ * Sixteen bits rather than thirty-two is the single biggest thing in this file.
+ * The array is touched once per edge at a random offset, so the search is bound
+ * by cache misses on it; halving it from 14.7 MB to 7.3 MB is worth more than
+ * any instruction selection nearby.  Storing a *depth* instead of a parent is
+ * what buys the room: the path is recovered afterwards by stepping to whichever
+ * neighbour is one level shallower, a few dozen lookups against 150,000 edges
+ * saved.  It also makes the store loop-invariant -- every state reached in one
+ * round gets the same word -- so the inner loop writes a register it already
+ * holds.
+ *
+ * The generation stamp keeps reuse cheap: a solve bumps the counter instead of
+ * clearing the array, so marks left by earlier solves read as unvisited.  Eleven
+ * bits give 2047 solves between real clears.
  */
 
     .intel_syntax noprefix
@@ -27,7 +35,7 @@
 /* Levels cannot exceed 114,149 (the depth-8 shell) before the two sides must
  * have met, since the diameter is 14 and the search keeps them balanced. */
     .equ BFS_CAP,   131072
-    .equ BFS_PEAK,  NSTATES*4 + 3*BFS_CAP*4
+    .equ BFS_PEAK,  NSTATES*2 + 3*BFS_CAP*4
 
 /* frame offsets inside bfs_solve_index */
     .equ F_BUFA,    0
@@ -49,6 +57,9 @@
     .equ F_GEN,     168
     .equ F_SIDE,    172
     .equ F_DEPTH,   176
+    .equ F_LEVDEPTH,188
+    .equ F_FWDD,    180              /* depth reached by each frontier */
+    .equ F_BWDD,    184
     .equ F_SIZE,    200
 
     .text
@@ -67,14 +78,12 @@
     .macro CHILD m
     mov     eax, [r10 + \m*4]
     add     eax, [r11 + \m*4]
-    mov     ecx, [r12 + rax*4]
+    movzx   ecx, word ptr [r12 + rax*2]
     mov     edx, ecx
     and     edx, MARK_GENMASK
     cmp     edx, r9d
     je      .Lseen\m
-    mov     edx, ebp
-    or      edx, \m
-    mov     [r12 + rax*4], edx
+    mov     [r12 + rax*2], bp               /* the round's constant mark */
     mov     [rdi], eax
     add     rdi, 4
 .Lback\m:
@@ -100,7 +109,7 @@ bfs_prepare:
     jne     2f
     sub     rsp, 8
     mov     edi, NSTATES
-    mov     esi, 4
+    mov     esi, 2
     call    calloc@PLT
     test    rax, rax
     je      1f
@@ -115,37 +124,91 @@ bfs_prepare:
 1:  add     rsp, 8
 2:  ret
 
-/* bfs_trail(edi=node, rsi=out) -> eax length.  The moves from this node's
- * frontier root down to it, in root-first order. */
+/* bfs_trail(edi=node, esi=tag, rdx=out) -> eax length.
+ *
+ * The moves from this node's frontier root down to it, root first. There is no
+ * parent stored -- the mark carries only a depth -- so each step asks which of
+ * the six neighbours is marked one level shallower on this side. That is at
+ * most 6 lookups per move and about 40 per solve, the price of the 7.3 MB the
+ * narrower mark saves in the loop that runs 150,000 times.
+ *
+ * back = apply(node, move^1), so if `back` is the shallower one, the move that
+ * led from it to `node` is `move`.
+ */
 bfs_trail:
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+    push    r15
     mov     r8, [rip + bfs_marks]
     lea     r9, [rip + solve_move_chars]
-    xor     ecx, ecx
-1:  mov     eax, [r8 + rdi*4]
-    mov     edx, eax
-    and     edx, MARK_MOVEMASK
-    cmp     edx, MARK_ROOT
-    je      2f
-    movzx   edx, byte ptr [r9 + rdx]
-    mov     [rsi + rcx], dl
+    lea     r14, [rip + perm_wide]
+    lea     r15, [rip + orient_child]
+    mov     r13, rdx                        /* out */
+    mov     r12d, esi                       /* tag = generation | side */
+    xor     ecx, ecx                        /* length */
+
+1:  movzx   eax, word ptr [r8 + rdi*2]
+    and     eax, MARK_DEPTHMASK
+    test    eax, eax
+    je      5f                              /* reached this frontier's root */
+    lea     r10d, [r12 + rax - 1]           /* the mark a parent must carry */
+
+    /* the two move rows for the current node */
+    mov     edx, edi
+    mov     eax, edi
+    imul    rax, rax, MAGIC729
+    shr     rax, 32
+    mov     ebp, eax
+    imul    ebp, ebp, NORIENT
+    sub     edx, ebp                        /* r */
+    shl     rax, PERMROW_SH
+    add     rax, r14                        /* permutation row */
+    mov     ebp, edx
+    shl     rbp, ORIENTROW_SH
+    add     rbp, r15                        /* orientation row */
+
+    xor     ebx, ebx                        /* move */
+2:  mov     edx, ebx
+    xor     edx, 1                          /* the inverse turn */
+    mov     r11d, [rax + rdx*4]
+    add     r11d, [rbp + rdx*4]             /* back = apply(node, move^1) */
+    movzx   edx, word ptr [r8 + r11*2]
+    cmp     edx, r10d
+    je      3f
+    inc     ebx
+    cmp     ebx, NSOLVE
+    jb      2b
+    jmp     5f                              /* unreachable for a valid table */
+3:  movzx   edx, byte ptr [r9 + rbx]
+    mov     [r13 + rcx], dl
     inc     ecx
-    shr     eax, MARK_PARSH
-    and     eax, MARK_PARMASK
-    mov     edi, eax
+    mov     edi, r11d
     jmp     1b
-2:  xor     edx, edx                        /* reverse in place */
+
+5:  test    ecx, ecx                        /* a root has no trail at all */
+    je      7f
+    xor     edx, edx                        /* reverse in place */
     mov     eax, ecx
-3:  dec     eax
+6:  dec     eax
     cmp     edx, eax
-    jae     4f
-    movzx   r10d, byte ptr [rsi + rdx]
-    movzx   r11d, byte ptr [rsi + rax]
-    mov     [rsi + rdx], r11b
-    mov     [rsi + rax], r10b
+    jae     7f
+    movzx   r10d, byte ptr [r13 + rdx]
+    movzx   r11d, byte ptr [r13 + rax]
+    mov     [r13 + rdx], r11b
+    mov     [r13 + rax], r10b
     inc     edx
-    jmp     3b
-4:  mov     byte ptr [rsi + rcx], 0
+    jmp     6b
+7:  mov     byte ptr [r13 + rcx], 0
     mov     eax, ecx
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
     ret
 
 /* bfs_solve_index(edi=index, rsi=solution) -> eax status */
@@ -177,7 +240,7 @@ bfs_solve_index:
     jb      1f
     mov     rdi, r12
     xor     esi, esi
-    mov     edx, NSTATES*4
+    mov     edx, NSTATES*2
     call    memset@PLT
     xor     eax, eax
 1:  inc     eax
@@ -186,12 +249,10 @@ bfs_solve_index:
     mov     [rsp + F_GEN], eax
     mov     r9d, eax
 
+    mov     [r12 + rbx*2], ax               /* the scramble roots the forward tree */
     mov     edx, eax
-    or      edx, MARK_ROOT
-    mov     [r12 + rbx*4], edx              /* the scramble roots the forward tree */
-    mov     edx, eax
-    or      edx, MARK_ROOT | MARK_SIDEBIT
-    mov     [r12 + SOLVED_INDEX*4], edx
+    or      edx, MARK_SIDEBIT
+    mov     [r12 + SOLVED_INDEX*2], dx
 
     mov     rax, [rip + bfs_levels]
     mov     [rsp + F_FWD], rax
@@ -208,6 +269,8 @@ bfs_solve_index:
     lea     r15, [rip + orient_child]
     mov     dword ptr [rsp + F_MEET], -1
     mov     dword ptr [rsp + F_DEPTH], 0
+    mov     dword ptr [rsp + F_FWDD], 0
+    mov     dword ptr [rsp + F_BWDD], 0
 
 .Lbfs_level:
     cmp     dword ptr [rsp + F_DEPTH], MAXDEPTH
@@ -229,13 +292,22 @@ bfs_solve_index:
     mov     [rsp + F_LEVN], eax
     mov     [rsp + F_SIDE], r8d
     mov     r9d, [rsp + F_GEN]
-    mov     ecx, r9d
+    /* Every state reached this round carries the same mark, so build it once
+     * here and let the inner loop store a register. */
+    mov     ecx, [rsp + F_FWDD]
+    test    r8d, r8d
+    je      21f
+    mov     ecx, [rsp + F_BWDD]
+21: inc     ecx
+    mov     [rsp + F_LEVDEPTH], ecx
+    or      ecx, r9d
     or      ecx, r8d
     mov     [rsp + F_STAMP], ecx
     mov     rdi, [rsp + F_NXT]
     lea     rax, [rdi + BFS_CAP*4]
     mov     [rsp + F_NXTEND], rax
     mov     r13, rsi                        /* level base -- depth is done with */
+    mov     ebp, [rsp + F_STAMP]            /* the round's constant mark */
     sub     rax, 24                         /* room for six children */
     mov     rsi, rax                        /* the per-node limit, in a register */
     xor     ebx, ebx
@@ -268,15 +340,11 @@ bfs_solve_index:
     .irp poff, 0, 4, 8, 12, 16, 20
     mov     ecx, [rax + \poff]
     add     ecx, [rdx + \poff]
-    prefetcht0 [r12 + rcx*4]
+    prefetcht0 [r12 + rcx*2]
     .endr
 8100:
     mov     ecx, [r13 + rbx*4]
     mov     [rsp + F_NODE], ecx
-    mov     ebp, [rsp + F_STAMP]
-    mov     eax, ecx
-    shl     eax, MARK_PARSH
-    or      ebp, eax
     mov     eax, ecx
     imul    rax, rax, MAGIC729
     shr     rax, 32                         /* q */
@@ -308,12 +376,23 @@ bfs_solve_index:
     mov     [rsp + F_NXT], rcx
     mov     [rsp + F_FWD], rax
     mov     [rsp + F_FWDN], edi
-    jmp     2f
+    jmp     .Lbfs_swapped
 1:  mov     rcx, [rsp + F_BWD]
     mov     [rsp + F_NXT], rcx
     mov     [rsp + F_BWD], rax
     mov     [rsp + F_BWDN], edi
-2:  cmp     dword ptr [rsp + F_FWDN], 0
+.Lbfs_swapped:
+    /* this side is now one level deeper. Named labels, not numbered ones: the
+     * block above jumps to `2f` and would otherwise land past this. */
+    mov     ecx, [rsp + F_LEVDEPTH]
+    cmp     dword ptr [rsp + F_FROMGOAL], 0
+    jne     .Lbfs_deeper_backward
+    mov     [rsp + F_FWDD], ecx
+    jmp     .Lbfs_deeper_done
+.Lbfs_deeper_backward:
+    mov     [rsp + F_BWDD], ecx
+.Lbfs_deeper_done:
+    cmp     dword ptr [rsp + F_FWDN], 0
     je      .Lbfs_nosol
     cmp     dword ptr [rsp + F_BWDN], 0
     je      .Lbfs_nosol
@@ -331,7 +410,9 @@ bfs_solve_index:
     /* reached: this side's root -> the meeting point.
      * opposite: the other side's root -> the same place. */
     mov     edi, [rsp + F_NODE]
-    lea     rsi, [rsp + F_BUFA]
+    mov     esi, [rsp + F_GEN]
+    or      esi, [rsp + F_SIDE]             /* the expanding side's tag */
+    lea     rdx, [rsp + F_BUFA]
     call    bfs_trail
     mov     ecx, [rsp + F_BY]
     lea     rdx, [rip + solve_move_chars]
@@ -341,7 +422,10 @@ bfs_solve_index:
     inc     eax
     mov     byte ptr [rsi + rax], 0
     mov     edi, [rsp + F_MEET]
-    lea     rsi, [rsp + F_BUFB]
+    mov     esi, [rsp + F_SIDE]
+    xor     esi, MARK_SIDEBIT               /* the side that got there first */
+    or      esi, [rsp + F_GEN]
+    lea     rdx, [rsp + F_BUFB]
     call    bfs_trail
 
     mov     r13, [rsp + F_SOL]

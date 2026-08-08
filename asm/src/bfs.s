@@ -55,6 +55,15 @@
 
 /* One child.  r10/r11 = the two move rows, r12 = marks, rdi = next-level
  * write pointer, rbp = gen|side|parent<<3, r8d = side, r9d = generation. */
+/* One child, laid out so the common case is straight-line.
+ *
+ * Nearly every edge reaches a state nobody has claimed yet, so that path falls
+ * through with no taken branch; the already-seen handling lives out of line at
+ * .Lseen\m and jumps back. The room-for-six check is hoisted to once per node
+ * and kept in rsi, which costs one register-to-register compare instead of six
+ * reloads of the limit from the stack. Both shapes were copied from what GCC
+ * does to the equivalent C, after a disassembly comparison showed the
+ * hand-written version taking an extra jump and an extra stack load per edge. */
     .macro CHILD m
     mov     eax, [r10 + \m*4]
     add     eax, [r11 + \m*4]
@@ -62,23 +71,24 @@
     mov     edx, ecx
     and     edx, MARK_GENMASK
     cmp     edx, r9d
-    je      7000f
+    je      .Lseen\m
     mov     edx, ebp
     or      edx, \m
     mov     [r12 + rax*4], edx
-    cmp     rdi, [rsp + F_NXTEND]
-    jae     .Lbfs_overflow
     mov     [rdi], eax
     add     rdi, 4
-    jmp     7001f
-7000:
+.Lback\m:
+    .endm
+
+/* The out-of-line half of CHILD, one per move index. */
+    .macro CHILD_SEEN m
+.Lseen\m:
     and     ecx, MARK_SIDEBIT
     cmp     ecx, r8d
-    je      7001f                           /* this side has already been here */
+    je      .Lback\m                        /* this side has already been here */
     mov     [rsp + F_MEET], eax
     mov     dword ptr [rsp + F_BY], \m
     jmp     .Lbfs_found
-7001:
     .endm
 
 /* bfs_prepare() -> rax marks, or 0.  One allocation for the life of the
@@ -226,11 +236,15 @@ bfs_solve_index:
     lea     rax, [rdi + BFS_CAP*4]
     mov     [rsp + F_NXTEND], rax
     mov     r13, rsi                        /* level base -- depth is done with */
+    sub     rax, 24                         /* room for six children */
+    mov     rsi, rax                        /* the per-node limit, in a register */
     xor     ebx, ebx
 
 .Lbfs_node:
     cmp     ebx, [rsp + F_LEVN]
     jae     .Lbfs_endlevel
+    cmp     rdi, rsi
+    ja      .Lbfs_overflow
     mov     ecx, [r13 + rbx*4]
     mov     [rsp + F_NODE], ecx
     mov     ebp, [rsp + F_STAMP]
@@ -279,6 +293,13 @@ bfs_solve_index:
     je      .Lbfs_nosol
     inc     dword ptr [rsp + F_DEPTH]
     jmp     .Lbfs_level
+
+    CHILD_SEEN 0
+    CHILD_SEEN 1
+    CHILD_SEEN 2
+    CHILD_SEEN 3
+    CHILD_SEEN 4
+    CHILD_SEEN 5
 
 .Lbfs_found:
     /* reached: this side's root -> the meeting point.

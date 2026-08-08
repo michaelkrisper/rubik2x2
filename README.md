@@ -90,7 +90,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | C++23 (GCC 16.1.1) | 137 ms | 0.00045 ms | 1,818 solves | 1.68× (4 threads) |
 | C | gcc 16.1.1 | 143 ms | 0.0004 ms | 2,412 solves | 1.66× (4 threads) |
 | Rust | 1.97.1 | 173 ms | 0.0006 ms | 1,780 solves | 1.68× (4 threads) |
-| Go | 1.26.5-X:nodwarf5 | 212 ms | 0.001 ms | 1,249 solves | 1.29× (4 threads) |
+| Go | 1.26.5-X:nodwarf5 | 248 ms | 0.001 ms | 1,380 solves | 1.51× (4 threads) |
 | C# | 10.0.10 | 307 ms | 0.00075 ms | 1,631 solves | 1.12× (4 threads) |
 | JavaScript | 24.18.0 | 421 ms | 0.002 ms | 2,105 solves | 0.69× (4 threads) |
 | Python | 3.14.6 | 731 ms | 0.042 ms | 222 solves | 1.89× (4 threads) |
@@ -105,7 +105,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | 34.2 s | 261 KB | 9 | 1,367 | 492 |
 | C | 2.0 s | 52 KB | 17 | 2,175 | 427 |
 | Rust | 10.5 s | 598 KB | 13 | 1,326 | 366 |
-| Go | 9.6 s | 2.1 MB | 16 | 2,331 | 866 |
+| Go | — | 2.1 MB | 16 | 2,328 | 866 |
 | C# | 3.7 s | 227 KB | 30 | 2,237 | 408 |
 | JavaScript | — | 151 KB | 11 | 1,944 | 694 |
 | Python | — | 62 KB | 11 | 1,328 | 528 |
@@ -120,7 +120,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | 2.8 ms | 3.9 MB | 6,160× |
 | C | 1.6 ms | 1.6 MB | 3,880× |
 | Rust | 1.8 ms | 2.2 MB | 3,035× |
-| Go | 8.2 ms | 2.8 MB | 8,180× |
+| Go | 8.7 ms | 2.8 MB | 8,424× |
 | C# | 52.0 ms | 26.9 MB | 69,567× |
 | JavaScript | 197 ms | 56.6 MB | 98,736× |
 | Python | 121 ms | 19.5 MB | 2,906× |
@@ -137,7 +137,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | 0 | 0.109 | 137 | 81.3 |
 | C | 0 | 0.129 | 143 | 86.1 |
 | Rust | 0 | 0.1 | 173 | 103 |
-| Go | 0 | 0.222 | 212 | 164 |
+| Go | 0 | 0.204 | 248 | 164 |
 | C# | 0 | 0.598 | 307 | 275 |
 | JavaScript | 0 | 8.8 | 421 | 612 |
 | Python | 0 | 4.4 | 731 | 386 |
@@ -152,7 +152,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | 0.076 | 0.082 | 0.00045 | 0.00045 |
 | C | 0.06 | 0.08 | 0.0004 | 0.0004 |
 | Rust | 0.098 | 0.182 | 0.0006 | 0.0006 |
-| Go | 0.171 | 0.297 | 0.001 | 0.001 |
+| Go | 0.18 | 0.298 | 0.001 | 0.001 |
 | C# | 0.189 | 0.268 | 0.00075 | 0.00075 |
 | JavaScript | 0.202 | 0.28 | 0.002 | 0.002 |
 | Python | 3.3 | 9.6 | 0.042 | 0.039 |
@@ -167,7 +167,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | 0.901 | 9.0 | 0.00026 | 0.00026 |
 | C | 0.766 | 8.6 | 0.0002 | 0.0002 |
 | Rust | 1.2 | 20.1 | 0.0004 | 0.0004 |
-| Go | 2.0 | 33.6 | 0.001 | 0.001 |
+| Go | 2.3 | 34.0 | 0.00088 | 0.00088 |
 | C# | 1.5 | 29.3 | 0.00052 | 0.00052 |
 | JavaScript | 3.2 | 30.4 | 0.001 | 0.001 |
 | Python | 51.2 | 1,024 | 0.042 | 0.042 |
@@ -182,7 +182,7 @@ python3 tools/report.py             # renders the tables below
 | C++ | 15.2 | 0 | 3.7 | 3.7 |
 | C | 15.3 | 0.01 | 3.7 | 3.7 |
 | Rust | 15.3 | 0 | 3.7 | 3.7 |
-| Go | 15.7 | 0.006 | 3.7 | 3.7 |
+| Go | 15.7 | 0.0062 | 3.7 | 3.7 |
 | C# | 5.6e-05 | 0.006 | 3.7 | 3.7 |
 | JavaScript | 15.3 | 0.07 | 3.7 | 3.7 |
 | Python | 9.4 | 0.0085 | 3.7 | 3.7 |

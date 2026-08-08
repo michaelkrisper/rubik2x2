@@ -10,9 +10,9 @@ on:
 # distance table reproduces OEIS A079762. If a move table or an encoding is
 # wrong anywhere, that check is what catches it.
 jobs:
-  c:
+  asm:
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: c } }
+    defaults: { run: { working-directory: asm } }
     steps:
       - uses: actions/checkout@v4
       - run: make
@@ -20,15 +20,36 @@ jobs:
       - run: ./rubik2x2 table
       - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
 
+  c:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    name: c (${{ matrix.compiler }})
+    defaults: { run: { working-directory: c } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: make CC=${{ matrix.compiler }}
+      - run: make CC=${{ matrix.compiler }} test
+      - run: ./rubik2x2 table
+      - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
+
   cpp:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { compiler: g++-14, install: g++-14 }
+          - { compiler: clang++, install: clang }
+    name: cpp (${{ matrix.compiler }})
     defaults: { run: { working-directory: cpp } }
     steps:
       - uses: actions/checkout@v4
-      - name: Install GCC 14
-        run: sudo apt-get update && sudo apt-get install -y g++-14
-      - run: make CXX=g++-14
-      - run: make CXX=g++-14 test
+      - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.install }}
+      - run: make CXX=${{ matrix.compiler }}
+      - run: make CXX=${{ matrix.compiler }} test
       - run: ./rubik2x2 table
       - run: ./rubik2x2 bench --json --scrambles ../bench/scrambles.txt
 
@@ -105,8 +126,8 @@ jobs:
       - run: python -m pyrubik table
 
   agree:
-    # The point of six implementations: they must give the same answers.
-    needs: [c, cpp, rust, go, csharp, javascript, python]
+    # The point of eight implementations: they must give the same answers.
+    needs: [asm, c, cpp, rust, go, csharp, javascript, python]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All implementations built, tested and reproduced OEIS A079762."

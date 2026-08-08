@@ -40,9 +40,9 @@ enum {
     MARK_GEN_POS = MARK_SIDE_POS + 1,
 };
 
-#define MARK_SIDE_BIT ((uint32_t)1 << MARK_SIDE_POS)
-#define MARK_GEN_MASK (~(MARK_SIDE_BIT | (uint32_t)MARK_DEPTH_MASK))
-#define MARK_MAX_GEN ((UINT32_MAX >> MARK_GEN_POS) - 1)
+#define MARK_SIDE_BIT ((uint16_t)1 << MARK_SIDE_POS)
+#define MARK_GEN_MASK ((uint16_t)~(MARK_SIDE_BIT | (uint16_t)MARK_DEPTH_MASK))
+#define MARK_MAX_GEN ((UINT16_MAX >> MARK_GEN_POS) - 1)
 
 /* One breadth-first level: a plain array of states, reused across solves. Three
  * of them rotate -- the two frontiers and the level being built. */
@@ -56,7 +56,7 @@ typedef struct {
  * allocated once. bfs_solve is not thread-safe; nothing in this program solves
  * concurrently, and a 14.7 MB allocation per solve would cost far more than the
  * search it serves. bfs_release hands it all back. */
-static uint32_t *bfs_marks;
+static uint16_t *bfs_marks;
 static uint32_t bfs_generation;
 static level_t bfs_level[3];
 
@@ -150,7 +150,7 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
         || !level_reserve(&bfs_level[1], 1))
         return SOLVE_OUT_OF_MEMORY;
 
-    uint32_t *const marks = bfs_marks;
+    uint16_t *const marks = bfs_marks;
     marks[start] = generation;
     marks[COORD_SOLVED_INDEX] = generation | MARK_SIDE_BIT;
 
@@ -173,7 +173,7 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
         const uint32_t side = from_goal ? MARK_SIDE_BIT : 0;
         /* Every state reached this round gets the same mark, so the store in the
          * inner loop is a constant. */
-        const uint32_t reached = generation | side | (*level_depth + 1);
+        const uint16_t reached = (uint16_t)(generation | side | (*level_depth + 1));
 
         next->count = 0;
         uint32_t meeting = 0, from = 0;
@@ -201,7 +201,7 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
             const uint16_t *const orient = tables->orient_by_r[node % COORD_ORIENTATIONS];
             for (int move = 0; move < COORD_MOVES; move++) {
                 const uint32_t child = perm[move] + orient[move];
-                const uint32_t mark = marks[child];
+                const uint16_t mark = marks[child];
                 if ((mark & MARK_GEN_MASK) == generation) {
                     if ((mark & MARK_SIDE_BIT) == side)
                         continue; /* this side has already been here */

@@ -73,11 +73,33 @@ TARGETS = [
         source_globs=("*.c", "*.h", "src/*.c", "src/*.h", "include/*.h"),
         test_globs=("test*.c", "tests/*.c", "tests/*.h"),
     ),
+    # Same source, other compiler. Reported separately rather than replacing the
+    # default, because which compiler you have is not a property of the language.
+    Target(
+        name="c-clang",
+        directory="c",
+        clean=["make", "clean"],
+        build=["make", "CC=clang"],
+        artifact="rubik2x2",
+        run=["./rubik2x2"],
+        source_globs=("*.c", "*.h", "src/*.c", "src/*.h", "include/*.h"),
+        test_globs=("test*.c", "tests/*.c", "tests/*.h"),
+    ),
     Target(
         name="cpp",
         directory="cpp",
         clean=["make", "clean"],
         build=["make"],
+        artifact="rubik2x2",
+        run=["./rubik2x2"],
+        source_globs=("*.cpp", "*.hpp", "src/*.cpp", "src/*.hpp", "include/*.hpp"),
+        test_globs=("test*.cpp", "tests/*.cpp", "tests/*.hpp"),
+    ),
+    Target(
+        name="cpp-clang",
+        directory="cpp",
+        clean=["make", "clean"],
+        build=["make", "CXX=clang++"],
         artifact="rubik2x2",
         run=["./rubik2x2"],
         source_globs=("*.cpp", "*.hpp", "src/*.cpp", "src/*.hpp", "include/*.hpp"),
@@ -233,6 +255,10 @@ def measure(target: Target, skip_build: bool) -> dict | None:
 
     source_files, source_lines = _count(target, target.source_globs)
     test_files, test_lines = _count(target, target.test_globs)
+    if target.name.endswith("-clang"):
+        # The binary reports its language, not which compiler produced it.
+        report["language"] = f"{report.get('language', target.name)} (clang)"
+        report["build"] = report.get("build", "").replace("GCC", "clang").replace("g++", "clang++")
     report |= {
         "build_ms": build_ms,
         "startup_ms": startup_ms,

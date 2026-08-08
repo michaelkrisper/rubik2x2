@@ -265,12 +265,66 @@ part of the point.
 
 | | assembly | C | |
 |---|---|---|---|
-| `bfs` avg | 0.091 ms | 0.078 ms | C 1.17× faster |
+| `bfs` avg | 0.082 ms | 0.069 ms | C 1.19× faster |
 | `ida` avg | 0.094 ms | 0.080 ms | C 1.18× faster |
-| `table` setup, serial | 143 ms | 144 ms | even |
+| `table` setup, serial | 140 ms | 139 ms | even |
 | `table-par` setup, 4 workers | 84.6 ms | 86 ms | even |
 | binary as built | 47 KB | 53 KB | assembly 12% smaller |
 | binary stripped | 27 KB | 48 KB | assembly 1.8× smaller |
+
+### Chasing the `bfs` gap
+
+Everything here is machine code in the end, so the 19% is readable rather than
+mysterious. Disassembling both inner loops and putting them side by side turned
+up three differences, and measuring each one separately was worth more than the
+speedups it produced.
+
+**Two shapes were worth copying** (86 → 82 µs together). GCC lays the
+already-visited branch far out of line, so the common case — a state nobody has
+claimed yet — runs straight through with no taken branch; the hand-written
+version had an unconditional `jmp` skipping the cold half. And GCC's queue is
+reserved once per round, where the assembly re-checked room for six children
+against a stack slot on every single edge; that became one register compare per
+node.
+
+**One shape was worth copying and turned out not to be** (82 → 84 µs). GCC
+computes the mark's address once with `lea` and reuses the register for the load
+and the store. Doing the same in assembly is *slower*: `[r12 + rax*4]` is folded
+into both instructions for free, so the explicit `lea` adds an instruction to
+save nothing.
+
+**What is left is not a coding difference but a design one.** Profiling says 69%
+of the remaining time sits in six identical instructions — `mov ecx, [r12+rax*4]`,
+the mark load — and per child the assembly actually executes *fewer* instructions
+than GCC does, twelve against fifteen. The gap survives that, because of what
+each one stores:
+
+```c
+/* C: the value is the same for every state reached this round */
+const uint32_t reached = generation | side | (*level_depth + 1);
+marks[child] = reached;
+```
+
+```asm
+/* assembly: the value carries the parent and the move, so it is rebuilt per child */
+mov     edx, ebp
+or      edx, \m
+mov     [r12 + rax*4], edx
+```
+
+C stores a *depth* and recovers the path afterwards by looking for a neighbour
+one level shallower — a few dozen lookups once per solve. The assembly stores the
+*parent and the move* so the path is a pointer walk. The pointer walk is the
+cheaper reconstruction, but it costs a varying store on every one of ~150,000
+edges instead of a loop-invariant one, and it spends 22 bits per mark that C
+spends on its generation counter instead.
+
+Closing that would mean adopting C's trail reconstruction wholesale, not writing
+tighter instructions. Which is the honest summary of the whole exercise: hand
+assembly matched the compiler on everything memory-bound — the table builds are
+level with each other — and lost where the compiler's *algorithmic* framing was
+simply better. The wins that remain available to assembly are in size, where it
+is genuinely ahead.
 
 Worst case, assembly: `bfs` 1.15 ms and `ida` 10.3 ms, both on the antipodal
 position. All four entries report `optimal: true`.

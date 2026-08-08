@@ -73,6 +73,36 @@ thread_local! {
     static SCRATCH: RefCell<Scratch> = RefCell::new(Scratch::new());
 }
 
+/// How many frontier entries ahead to name cache lines. Measured; the win is
+/// flat from four to eight and turns back down past that.
+const PREFETCH_LOOKAHEAD: usize = 6;
+
+/// Name the mark words the loop will want shortly.
+///
+/// Profiling puts most of the search in one instruction: the mark load, a random
+/// word of a 14.7 MB array, on machines with a few MB of last-level cache. The
+/// loop therefore waits on memory rather than on arithmetic, and recomputing an
+/// address early lets the misses overlap instead of stalling one at a time.
+///
+/// A miss to name is only a hint, so a wrong or out-of-range guess would merely
+/// waste the hint -- but the bounds are checked anyway, since the cost is
+/// nothing against a memory stall.
+#[inline]
+fn prefetch_marks(marks: &[u32], level: &[u32], position: usize, tables: &coords::Tables) {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(&ahead) = level.get(position) {
+        use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+        for turn in 0..tables.moves.len() {
+            let child = tables.apply(ahead, turn) as usize;
+            // SAFETY: a prefetch only warms a cache line; `child` is a valid
+            // index into `marks`, which `apply` guarantees by construction.
+            unsafe { _mm_prefetch(marks.as_ptr().add(child).cast(), _MM_HINT_T0) };
+        }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = (marks, level, position, tables);
+}
+
 /// Return a shortest move sequence solving `state`; empty if already solved.
 pub fn solve(state: &State) -> Result<String> {
     solve_within(state, crate::MAX_DEPTH)
@@ -108,7 +138,8 @@ pub fn solve_within(state: &State, max_depth: u8) -> Result<String> {
             following.clear();
             let mut meeting = None;
 
-            'level: for &node in level.iter() {
+            'level: for (position, &node) in level.iter().enumerate() {
+                prefetch_marks(marks, level, position + PREFETCH_LOOKAHEAD, tables);
                 for turn in 0..tables.moves.len() {
                     let child = tables.apply(node, turn);
                     let mark = marks[child as usize];

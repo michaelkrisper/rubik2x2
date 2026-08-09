@@ -254,23 +254,30 @@ cache miss. Asking the kernel for transparent huge pages (`madvise` with
 entries. That was worth another **16% in the assembly**, 45 → 38 µs, and is a
 memory-layout decision no compiler makes for you: it lives in the allocator,
 not the code. C, C++, Rust and Go now do the same — `madvise` is reachable from
-all four, via raw `mmap` in C and C++, `syscall.Mmap` in Go, and an aligned
-allocation plus a syscall through inline assembly in Rust. C# and JavaScript
+all four, via raw `mmap` in C and C++, `syscall.Mmap` in Go, and — since the
+crate takes no dependencies — `mmap` and `madvise` issued through inline
+assembly in Rust. C# and JavaScript
 cannot without leaving the language: neither hands you the mapping its arrays
 live in. `peak_mb` rounds up to about 10.0 wherever it is in effect — four 2 MB
 pages instead of 7.3 MB exactly.
 
-*How* the mapping is obtained turns out to matter as much as asking for it.
-The advice has to reach a **fresh, untouched** anonymous mapping: THP populates
-huge pages on first fault, so anything that writes to the memory first — an
-allocator zeroing an over-aligned block, for instance — has already faulted in
-4 KB pages, and `khugepaged` is left to collapse them later, asynchronously
-and unreliably. An earlier attempt in C with `aligned_alloc` + `madvise` failed
-for exactly that reason and was reverted before the assembly port succeeded
-with a raw `mmap`. Rust's version is std-only and therefore still allocates
-through `alloc_zeroed`, which memsets over-aligned blocks — so it has the same
-shape as the attempt that failed, and its row should be read with that in mind
-until measured.
+*How* the mapping is obtained turns out to matter as much as asking for it, and
+this is the part worth taking away. The advice has to reach a **fresh,
+untouched** anonymous mapping, because THP picks the page size at first fault.
+Anything that writes to the memory beforehand — an allocator zeroing an
+over-aligned block, for instance — has already faulted in 4 KB pages, and
+`khugepaged` is left to collapse them afterwards, asynchronously and mostly
+not at all. An early attempt in C with `aligned_alloc` + `madvise` failed for
+exactly that reason and was reverted. Rust then repeated it: its first version
+stayed std-only via `alloc_zeroed`, and an A/B of the same binary with huge
+pages available and denied measured **+1%** — nothing. Rewritten to map its own
+memory with a raw `mmap` syscall, the same A/B measures **+26%**. The
+difference between those two numbers is one memset, in a language whose safe
+allocator insists on it.
+
+Measured that way — one binary, huge pages available versus denied, alternating
+so drift cancels — the win is +18% in the assembly, +16% in Go, +15% in C++,
++14% in C and +26% in Rust.
 
 Together these collapsed the compiled spread from 13× to under 5×. The
 assembly measured 28% ahead of the fastest compiled build (0.038 ms against

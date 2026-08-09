@@ -69,6 +69,21 @@ unsafe impl GlobalAlloc for Tracking {
     }
 }
 
+/// Count memory this program obtained without going through the allocator.
+///
+/// The BFS mark array is mapped with `mmap` rather than allocated, because the
+/// huge-page advice has to reach the pages before anything faults them in — so
+/// [`Tracking`] never sees it, and `peak_mb` would report a saving that is not
+/// real. The mapping reports itself here instead.
+pub fn note_mapped(bytes: usize) {
+    Tracking::grew(bytes);
+}
+
+/// The counterpart to [`note_mapped`], for when the mapping is released.
+pub fn forget_mapped(bytes: usize) {
+    Tracking::shrank(bytes);
+}
+
 /// Bytes currently allocated.
 pub fn live() -> usize {
     LIVE.load(Relaxed)

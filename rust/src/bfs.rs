@@ -10,7 +10,9 @@
 //! frontiers meet, every shorter pairing has already been tried, so the first
 //! meeting point is a shortest solution — no heuristic, no tie-breaking.
 
-use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
+use std::alloc::{Layout, handle_alloc_error};
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+use std::alloc::{alloc_zeroed, dealloc};
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
@@ -61,14 +63,51 @@ const MARKS_BYTES: usize = (N_STATES as usize * size_of::<u16>()).next_multiple_
 /// asm solver measured this at 47% of its dTLB misses, and huge pages took its
 /// search from 45 to 38 µs.
 ///
-/// `madvise(MADV_HUGEPAGE)` only applies per whole huge page inside the
-/// mapping, so the allocation asks for 2 MB *alignment*; that also makes glibc
-/// satisfy it with its own mmap, which keeps the advice off unrelated heap
-/// memory. Behaves as a plain `[u16]` everywhere else, via `Deref`.
+/// On Linux this is a raw `mmap`, not an over-aligned `alloc_zeroed`, and the
+/// difference is the whole optimization rather than a detail. Transparent huge
+/// pages are chosen at *first fault*, so the advice has to arrive before
+/// anything writes to the memory. An allocator handed an over-aligned request
+/// memsets the block, which faults it in as 4 KB pages and leaves `khugepaged`
+/// to collapse them later, asynchronously and often not at all: measured that
+/// way this array gained 1%, against 14–18% for the mapped version. The C
+/// implementation made the same mistake first and reverted it. Behaves as a
+/// plain `[u16]` everywhere else, via `Deref`.
 struct HugeMarks {
     ptr: NonNull<u16>,
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+impl HugeMarks {
+    /// Map `MARKS_BYTES` at 2 MB alignment, advise, and leave it untouched.
+    ///
+    /// `mmap` promises page alignment but not huge-page alignment, so this asks
+    /// for one spare huge page and unmaps the misaligned head and the leftover
+    /// tail — together exactly `HUGE_PAGE` bytes. Fresh anonymous mappings read
+    /// as zero, which is what `Scratch` needs: generation 0 is never a live
+    /// stamp, so no memset is required and none is done.
+    fn new() -> Self {
+        let Some(raw) = sys_mmap(MARKS_BYTES + HUGE_PAGE) else {
+            handle_alloc_error(Layout::from_size_align(MARKS_BYTES, HUGE_PAGE).expect("constant"));
+        };
+        let base = raw.as_ptr().wrapping_add(raw.as_ptr().align_offset(HUGE_PAGE));
+        let head = base as usize - raw.as_ptr() as usize;
+        // SAFETY: both ranges lie inside the mapping just created and outside
+        // the `MARKS_BYTES` window kept below, so nothing live is unmapped.
+        unsafe {
+            if head != 0 {
+                sys_munmap(raw.as_ptr(), head);
+            }
+            sys_munmap(base.wrapping_add(MARKS_BYTES), HUGE_PAGE - head);
+        }
+        advise_huge(base, MARKS_BYTES);
+        crate::memory::note_mapped(MARKS_BYTES);
+        // SAFETY: `sys_mmap` returned a non-null address and `base` only moved
+        // forward within it.
+        Self { ptr: unsafe { NonNull::new_unchecked(base.cast::<u16>()) } }
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 impl HugeMarks {
     /// `MARKS_BYTES` at huge-page alignment; both are non-zero constants, so
     /// the layout cannot fail.
@@ -83,7 +122,6 @@ impl HugeMarks {
         let Some(ptr) = NonNull::new(raw.cast::<u16>()) else {
             handle_alloc_error(Self::layout());
         };
-        advise_huge(raw, MARKS_BYTES);
         Self { ptr }
     }
 }
@@ -107,8 +145,79 @@ impl DerefMut for HugeMarks {
 
 impl Drop for HugeMarks {
     fn drop(&mut self) {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        // SAFETY: `ptr` is the base of a `MARKS_BYTES` mapping made by `new`,
+        // and nothing else refers to it once `Scratch` is being dropped.
+        unsafe {
+            sys_munmap(self.ptr.as_ptr().cast::<u8>(), MARKS_BYTES);
+            crate::memory::forget_mapped(MARKS_BYTES);
+        }
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
         // SAFETY: `ptr` came from `alloc_zeroed` with exactly this layout.
-        unsafe { dealloc(self.ptr.as_ptr().cast::<u8>(), Self::layout()) };
+        unsafe {
+            dealloc(self.ptr.as_ptr().cast::<u8>(), Self::layout());
+        }
+    }
+}
+
+/// `mmap(NULL, len, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)`.
+///
+/// std has no `mmap` and the crate takes no dependencies, so this is the raw
+/// syscall. Returns `None` on any error, which the caller turns into the
+/// standard allocation failure.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn sys_mmap(len: usize) -> Option<NonNull<u8>> {
+    const SYS_MMAP: usize = 9;
+    const PROT_READ_WRITE: usize = 0x1 | 0x2;
+    const MAP_PRIVATE_ANONYMOUS: usize = 0x02 | 0x20;
+    let addr: usize;
+    // SAFETY: the x86-64 Linux syscall ABI — number in rax, arguments in
+    // rdi/rsi/rdx/r10/r8/r9, rcx and r11 clobbered by the instruction. Creating
+    // an anonymous mapping touches nothing this program already owns.
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            inlateout("rax") SYS_MMAP => addr,
+            in("rdi") 0usize,                     // let the kernel choose
+            in("rsi") len,
+            in("rdx") PROT_READ_WRITE,
+            in("r10") MAP_PRIVATE_ANONYMOUS,
+            in("r8") -1i64,                       // no file
+            in("r9") 0usize,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    // Errors come back as -errno in the top page of the address space.
+    if (addr as isize) < 0 && (addr as isize) > -4096 {
+        None
+    } else {
+        NonNull::new(addr as *mut u8)
+    }
+}
+
+/// `munmap(addr, len)`, for the alignment trim and for `Drop`.
+///
+/// # Safety
+///
+/// `addr..addr + len` must be a range this process mapped and no longer uses.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+unsafe fn sys_munmap(addr: *mut u8, len: usize) {
+    const SYS_MUNMAP: usize = 11;
+    // SAFETY: the caller guarantees the range is ours and dead; the syscall
+    // ABI is as in `sys_mmap`. A failure would leave the mapping in place,
+    // which is why the result is not checked.
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            inout("rax") SYS_MUNMAP => _,
+            in("rdi") addr,
+            in("rsi") len,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
     }
 }
 

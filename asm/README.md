@@ -70,8 +70,11 @@ suite `_Static_assert`s a matching C struct against them.
 
 **Memory.** Everything of fixed size is `.bss` — the coordinate tables
 (415 KB), the two pattern databases, the parallel context. Only the two big
-arrays are dynamic: `bfs_prepare()` `calloc`s the 7.3 MB mark array once for
-the life of the process, and `table_create()` `calloc`s 3.7 MB per table.
+arrays are dynamic: `bfs_prepare()` maps the mark array once for the life of
+the process — raw `mmap`, trimmed to 2 MB alignment and `madvise`d
+`MADV_HUGEPAGE`, so its 7.3 MB of random access costs four TLB entries instead
+of ~1,800 (see `alloc_huge` in `bfs.s`; the rounding is why `peak_mb` reads
+10.0) — and `table_create()` `calloc`s 3.7 MB per table.
 Tables are addressed by shifting rather than multiplying: rows of six moves are
 padded to eight, so `perm_wide[q]` is at `q << 5` and `orient_child[r]` at
 `r << 5`, and a child index is `perm_wide[q][m] + orient_child[r][m]` — one
@@ -94,7 +97,7 @@ against the kernel, and for nothing else:
 
 | Purpose | Symbols |
 |---|---|
-| allocation | `calloc`, `free` |
+| allocation | `calloc`, `free` — the mark array bypasses libc (raw `mmap`/`madvise` syscalls, for the huge-page control) |
 | bulk memory | `memset`, `memcmp` |
 | formatted output | `printf`, `dprintf`, `puts` |
 | files | `fopen`, `fgets`, `fclose` |
@@ -323,49 +326,55 @@ spent on its generation counter instead.
 Closing that meant adopting C's trail reconstruction wholesale, not writing
 tighter instructions — and that is what the assembly now does: a mark is a
 16-bit depth, frontier and stamp, the store is loop-invariant per level, and
-the array is half the size. Which is the honest summary of the whole exercise: hand
-assembly matched the compiler on everything memory-bound — the table builds are
-level with each other — and lost where the compiler's *algorithmic* framing was
-simply better. The wins that remain available to assembly are in size, where it
-is genuinely ahead.
+the array is half the size. That took the search from 73 to 44 µs and put it
+ahead of every compiled build.
 
-Worst case, assembly: `bfs` 1.15 ms and `ida` 10.3 ms, both on the antipodal
+**The last win was not in the instructions at all.** With the loop already
+lean, `perf` attributed 47% of the process's dTLB misses to the mark load:
+7.3 MB of random access is ~1,800 ordinary pages, more than the TLB holds, so
+each cache miss also bought a page walk. `alloc_huge` in `bfs.s` maps the
+array itself — raw `mmap`, trimmed to 2 MB alignment, `madvise(MADV_HUGEPAGE)` —
+and the whole thing becomes four TLB entries: 45 → 38 µs, another 16%, from a
+decision that lives in the allocator rather than the code. No compiler emits
+this; it is not code generation.
+
+Two more compiler tricks were tried against it and lost, which is worth
+recording. GCC compiles the C's conservative prefetch hint into `prefetcht2`;
+measured here, `t2` is 10% worse than the `prefetcht0` the assembly uses — the
+compiler faithfully reproduced a wrong guess in the source. And a branchless
+rewrite of the visited check (`cmov` for the mark store, flag-to-index `lea`
+for the append) was 10% slower than the mispredicting branch it replaced: after
+the TLB fix the loop is no longer stalled enough to hide four extra µops per
+edge. Mispredicts you can measure are sometimes cheaper than the µops that
+remove them.
+
+Worst case, assembly: `bfs` 0.47 ms and `ida` 10.4 ms, both on the antipodal
 position. All four entries report `optimal: true`.
 
-**The honest reading: writing it by hand did not make it faster.** GCC is
-about 17% ahead on both search algorithms and level on the table build, which
-is the result you should expect and the one worth reporting.
+**The honest reading, in the end.** The search is now 28% ahead of the best
+compiled build (0.038 ms against clang C++'s 0.046, C at 0.053) and the table
+builds are level. But almost none of that came from out-instructing the
+compiler: per child the assembly and GCC differ by a couple of `mov`s, both
+converged on the same algorithmic choices (reciprocal multiply for the divide,
+rows padded so addressing is a shift, the pre-multiplied permutation table),
+and where the compilers still hold a genuine advantage — scheduling, per-block
+register allocation, `-march=native` — this code deliberately does not compete
+across thousands of lines. The margin came from decisions *around* the code:
+prefetching the right distance ahead with the right hint, a 16-bit mark, and a
+page size the language runtimes upstairs never ask for. Assembly's edge is not
+faster arithmetic; it is that nothing stands between the source and those
+decisions.
 
-Where the two are level — the table builds — the inner loop is memory-latency
-bound on a randomly-accessed 3.7 MB array that does not fit in this chip's 3 MB
-L3. The CPU is waiting, and it does not matter who emitted the `mov`. Both
-implementations also converged on the same algorithmic choices (reciprocal
-multiply for the divide, rows padded so addressing is a shift, the
-pre-multiplied permutation table), so there is no instruction-selection gap
-left to exploit: the C source was already written against the machine.
+The binary is also smaller for an uninteresting reason: 16.7 KB of `.text`,
+because there is no inlining and no unrolling beyond the six children, and
+nothing is duplicated for `-flto` to specialise.
 
-Where GCC is ahead — the two search algorithms — it is winning on the things a
-human does not do by hand across thousands of lines: it unrolls and software-
-pipelines the child-expansion loops, schedules loads earlier than is readable
-to write, and reallocates registers per basic block instead of per function.
-The assembly hand-unrolls the six children in `bfs.s` and `table.s` with a
-`.macro`, which is where most of the gap would otherwise be, but it keeps one
-fixed register assignment for a whole routine because tracking a per-block one
-by hand is how you introduce bugs. `-march=native` also lets GCC use
-instructions this code deliberately does not (it targets baseline x86-64 plus
-`popcnt`, which `rank_perm` uses).
-
-The binary is smaller for an uninteresting reason: 16.7 KB of `.text`, because
-there is no inlining and no unrolling beyond the six children, and nothing is
-duplicated for `-flto` to specialise. The gap widens to 1.8× once both are
-stripped, since the assembly's `-g` output is the bulkier half of its file.
-Small and slower is the trade here, not a win.
-
-What hand-writing did buy is that the cost model is visible. `MAGIC729`'s
-exactness bound, the 11-bit generation stamp, and the register budget in
-`ida_descend` are all decisions in the source rather than the compiler's
-private opinion about them. That is worth something for reading, and nothing
-for the benchmark.
+What hand-writing bought is that the cost model is visible. `MAGIC729`'s
+exactness bound, the 11-bit generation stamp, the register budget in
+`ida_descend`, and now the page size under the mark array are all decisions in
+the source rather than the compiler's private opinion about them. That used to
+be worth something for reading and nothing for the benchmark; the huge pages
+moved it into the second column.
 
 ## Notes
 
@@ -373,6 +382,6 @@ for the benchmark.
   for `table-par` in the benchmark, matching the C implementation.
 - The optional `show` subcommand (drawing a cube as a net) is not implemented
   here; the four commands SPEC.md section 5 requires all are.
-- `bfs`'s 7.3 MB mark array is allocated once and intentionally never freed:
-  it lives for the process, so the benchmark's per-solve cost does not include
-  it. Every other allocation is balanced.
+- `bfs`'s mark array (7.3 MB, mapped as four 2 MB huge pages) is allocated once
+  and intentionally never freed: it lives for the process, so the benchmark's
+  per-solve cost does not include it. Every other allocation is balanced.

@@ -35,7 +35,14 @@
 /* Levels cannot exceed 114,149 (the depth-8 shell) before the two sides must
  * have met, since the diameter is 14 and the search keeps them balanced. */
     .equ BFS_CAP,   131072
-    .equ BFS_PEAK,  NSTATES*2 + 3*BFS_CAP*4
+
+/* The mark array lives on 2 MB pages: 7.3 MB of random access is ~1,800
+ * ordinary pages -- more than any dTLB holds, so nearly every mark load also
+ * paid a page walk (perf: 47% of the process's dTLB misses were this loop).
+ * Rounded up to a multiple of 2 MB it is four TLB entries. */
+    .equ HUGE_2M,   0x200000
+    .equ MARKS_HUGE,(NSTATES*2 + HUGE_2M - 1) & -HUGE_2M
+    .equ BFS_PEAK,  MARKS_HUGE + 3*BFS_CAP*4
 
 /* frame offsets inside bfs_solve_index */
     .equ F_BUFA,    0
@@ -102,6 +109,53 @@
     jmp     .Lbfs_found
     .endm
 
+/* alloc_huge(rdi = bytes, a multiple of 2 MB) -> rax: a 2 MB-aligned, zeroed,
+ * MADV_HUGEPAGE'd mapping, or 0.  mmap gives no alignment promise, so map one
+ * spare huge page, trim the unaligned head and whatever tail is left, and only
+ * then advise the kernel -- with THP in madvise mode the huge pages arrive at
+ * first fault, exactly when the memset-free zeroed mapping is touched. */
+alloc_huge:
+    push    rbx
+    push    r12
+    push    r13
+    mov     rbx, rdi                    /* bytes */
+    lea     rsi, [rdi + HUGE_2M]        /* over-map to guarantee alignment */
+    xor     edi, edi
+    mov     edx, 3                      /* PROT_READ|PROT_WRITE */
+    mov     r10d, 0x22                  /* MAP_PRIVATE|MAP_ANONYMOUS */
+    mov     r8, -1
+    xor     r9d, r9d
+    mov     eax, 9                      /* mmap */
+    syscall
+    cmp     rax, -4095
+    jae     8f
+    mov     r12, rax                    /* raw base */
+    lea     r13, [rax + HUGE_2M - 1]
+    and     r13, -HUGE_2M               /* aligned base */
+    mov     rsi, r13
+    sub     rsi, r12                    /* unaligned head */
+    je      1f
+    mov     rdi, r12
+    mov     eax, 11                     /* munmap the head */
+    syscall
+1:  lea     rdi, [r13 + rbx]            /* past the aligned block */
+    lea     rsi, [r12 + HUGE_2M]
+    sub     rsi, r13                    /* head + tail = one spare page */
+    mov     eax, 11                     /* munmap the tail */
+    syscall
+    mov     rdi, r13
+    mov     rsi, rbx
+    mov     edx, 14                     /* MADV_HUGEPAGE */
+    mov     eax, 28                     /* madvise; best effort, result ignored */
+    syscall
+    mov     rax, r13
+9:  pop     r13
+    pop     r12
+    pop     rbx
+    ret
+8:  xor     eax, eax
+    jmp     9b
+
 /* bfs_prepare() -> rax marks, or 0.  One allocation for the life of the
  * process; the benchmark's per-solve cost must not include it. */
     .globl bfs_prepare
@@ -110,9 +164,8 @@ bfs_prepare:
     test    rax, rax
     jne     2f
     sub     rsp, 8
-    mov     edi, NSTATES
-    mov     esi, 2
-    call    calloc@PLT
+    mov     edi, MARKS_HUGE
+    call    alloc_huge
     test    rax, rax
     je      1f
     mov     [rip + bfs_marks], rax
@@ -320,8 +373,8 @@ bfs_solve_index:
     cmp     rdi, rsi
     ja      .Lbfs_overflow
     /* Name the six mark words this loop will want a few frontier entries from
-     * now. Profiling puts 69% of the search in the mark load: one random word
-     * of a 14.7 MB array per edge, in a machine with 3 MiB of last-level cache,
+     * now. Profiling put 69% of the search in the mark load: one random word
+     * of a 7.3 MB array per edge, in a machine with 3 MiB of last-level cache,
      * so the loop is waiting on memory. Recomputing an address early costs a
      * multiply and lets the misses overlap instead of stalling one at a time. */
     lea     eax, [rbx + BFS_LOOKAHEAD]

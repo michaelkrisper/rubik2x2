@@ -84,8 +84,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Version | Table build | Per solve | Break-even | Threaded build |
 |---|---|---|---|---|---|
+| Assembly | 2.46.1-1.fc44 | 127 ms | 0.0004 ms | 3,342 solves | 1.44× (4 threads) |
 | C++ (clang) | clang version 22.1.8 | 132 ms | 0.00051 ms | 2,901 solves | 1.74× (4 threads) |
-| Assembly | 2.46.1-1.fc44 | 133 ms | 0.0004 ms | 2,958 solves | 1.53× (4 threads) |
 | C++ | C++23 (GCC 16.1.1) | 136 ms | 0.00046 ms | 2,852 solves | 1.62× (4 threads) |
 | C (clang) | clang version 22.1.8 | 137 ms | 0.0005 ms | 2,529 solves | 1.73× (4 threads) |
 | Rust | 1.97.1 | 162 ms | 0.0006 ms | 2,403 solves | 1.60× (4 threads) |
@@ -99,8 +99,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Build from clean | Artifact | Source files | Source lines | Test lines |
 |---|---|---|---|---|---|
+| Assembly | — | 46 KB | 8 | 3,465 | 644 |
 | C++ (clang) | 34.8 s | 261 KB | 9 | 1,371 | 492 |
-| Assembly | 0.1 s | 47 KB | 8 | 3,427 | 644 |
 | C++ | 33.4 s | 261 KB | 9 | 1,371 | 492 |
 | C (clang) | 1.6 s | 60 KB | 17 | 2,175 | 427 |
 | Rust | 10.5 s | 598 KB | 13 | 1,333 | 366 |
@@ -114,8 +114,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | Startup | Resident at startup | vs. one table lookup |
 |---|---|---|---|
+| Assembly | 1.6 ms | 1.5 MB | 3,946× |
 | C++ (clang) | 2.8 ms | 3.9 MB | 5,497× |
-| Assembly | 2.3 ms | 1.5 MB | 5,674× |
 | C++ | 2.9 ms | 3.9 MB | 6,388× |
 | C (clang) | 1.8 ms | 1.6 MB | 3,681× |
 | Rust | 1.8 ms | 2.2 MB | 3,048× |
@@ -131,8 +131,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
+| Assembly | 0 | 0.13 | 127 | 88.2 |
 | C++ (clang) | 0 | 0.071 | 132 | 75.8 |
-| Assembly | 0 | 0.136 | 133 | 86.8 |
 | C++ | 0 | 0.109 | 136 | 83.6 |
 | C (clang) | 0 | 0.111 | 137 | 79.1 |
 | Rust | 0 | 0.1 | 162 | 101 |
@@ -146,8 +146,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
+| Assembly | 0.038 | 0.093 | 0.0004 | 0.0004 |
 | C++ (clang) | 0.046 | 0.076 | 0.00051 | 0.00051 |
-| Assembly | 0.045 | 0.093 | 0.0004 | 0.0004 |
 | C++ | 0.048 | 0.082 | 0.00046 | 0.00046 |
 | C (clang) | 0.055 | 0.088 | 0.0005 | 0.0005 |
 | Rust | 0.068 | 0.18 | 0.0006 | 0.0006 |
@@ -161,8 +161,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
+| Assembly | 0.471 | 10.2 | 0.0002 | 0.0002 |
 | C++ (clang) | 0.66 | 8.4 | 0.00022 | 0.00022 |
-| Assembly | 0.632 | 10.1 | 0.0002 | 0.0002 |
 | C++ | 0.711 | 9.0 | 0.00026 | 0.00026 |
 | C (clang) | 0.685 | 9.7 | 0.0003 | 0.0003 |
 | Rust | 0.972 | 19.9 | 0.0004 | 0.0004 |
@@ -176,8 +176,8 @@ python3 tools/report.py             # renders the tables below
 
 | Language | bfs | ida | table | table-par |
 |---|---|---|---|---|
+| Assembly | 10.0 | 0.01 | 3.7 | 3.7 |
 | C++ (clang) | 7.9 | 0 | 3.7 | 3.7 |
-| Assembly | 8.9 | 0.01 | 3.7 | 3.7 |
 | C++ | 7.9 | 0 | 3.7 | 3.7 |
 | C (clang) | 7.9 | 0.01 | 3.7 | 3.7 |
 | Rust | 7.9 | 0 | 3.7 | 3.7 |
@@ -187,7 +187,7 @@ python3 tools/report.py             # renders the tables below
 | JavaScript | 7.9 | 0.07 | 3.7 | 3.7 |
 | Python | 9.4 | 0.0085 | 3.7 | 3.7 |
 
-Builds: C++ (clang) clanclang++ -std=c++23 -O3 -march=native -flto; Assembly GNU as 2.46.1-1.fc44, hand-written x86-64, System V ABI; C++ g++ -std=c++23 -O3 -march=native -flto; C (clang) C23, -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; C C23, -O3 -march=native -flto; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, numpy
+Builds: Assembly GNU as 2.46.1-1.fc44, hand-written x86-64, System V ABI; C++ (clang) clanclang++ -std=c++23 -O3 -march=native -flto; C++ g++ -std=c++23 -O3 -march=native -flto; C (clang) C23, -O3 -march=native -flto; Rust rustc 1.97.1, release, opt-level=3, lto=fat, codegen-units=1; C C23, -O3 -march=native -flto; Go gc, linux/amd64, optimised; C# .NET 10.0.10, Release, TieredPGO, x64; JavaScript Node.js v24.18.0, V8 13.6.233.17-node.50, JIT; Python CPython 3.14.6, GIL, numpy
 
 <!-- BENCHMARK:END -->
 
@@ -204,12 +204,12 @@ same ten programs rank almost inversely under those two readings.
 
 **The spread between languages is not one number.** Building the table spans 6×
 (C++/clang 132 ms to Python 740 ms), a single table lookup spans 100×,
-bidirectional search spans 62×, and the *artifact* spans 45× the other way
+bidirectional search spans 74×, and the *artifact* spans 45× the other way
 (assembly 47 KB to Go 2.1 MB). Which language is "fast" depends entirely on
 which of these you are paying for.
 
-**Two optimizations mattered more than the choice of language, and both were
-about memory rather than instructions.**
+**Four optimizations mattered more than the choice of language, and all four
+were about memory rather than instructions.**
 
 *The container.* Every implementation first reached for its language's natural
 hash map for the search frontier, and the spread across languages was 13×.
@@ -238,16 +238,32 @@ the compiler — around 35% in C++, roughly 20% in Rust, JavaScript and C#, and
 only the memory. Every implementation now carries the same 16-bit scheme, so
 the rows above compare like with like.
 
-Together these collapsed the compiled spread from 13× to about 4×, and
-assembly, C++ and C now sit within roughly 20% of each other. Almost everything
-that looked like a language gap was one wrong container, one missing hint, and
-one over-wide word.
+*The pages.* After all that, `perf` said the loop was still paying for its
+memory twice: 47% of the process's dTLB misses were the mark load, because
+7.3 MB of random access is ~1,800 ordinary 4 KB pages — more than any TLB
+holds — so a mark load missed the TLB and bought a page walk on top of the
+cache miss. Asking the kernel for transparent huge pages (`madvise` with
+`MADV_HUGEPAGE` on a 2 MB-aligned mapping) turns the whole array into four TLB
+entries. That was worth another **16% in the assembly**, 45 → 38 µs, and is a
+memory-layout decision no compiler makes for you: it lives in the allocator,
+not the code. So far only the assembly does this; C, C++, Rust and Go could
+(`madvise` is reachable from all four), C# and JavaScript cannot without
+leaving the language. The assembly's `peak_mb` rounds up to 10.0 for it — four
+2 MB pages instead of 7.3 MB exactly.
 
-Go and JavaScript are the exceptions to the second point, for a reason worth
-recording: neither exposes a prefetch. Go's standard library has no intrinsic,
-and JavaScript has no concept of one. That is a real difference between
+Together these collapsed the compiled spread from 13× to under 5×, with the
+hand-written assembly now 28% ahead of the fastest compiled build (0.038 ms
+against clang C++'s 0.046). Almost everything that looked like a language gap
+was one wrong container, one missing hint, one over-wide word, and one page
+size.
+
+Go and JavaScript are the exceptions on the prefetch, for a reason worth
+recording: neither exposes one. Go's standard library has no intrinsic, and
+JavaScript has no concept of one. That is a real difference between
 languages — not in how fast their code runs, but in whether the hardware is
-reachable at all.
+reachable at all. The huge-page item extends the same theme into the runtime:
+the languages that own their allocator can ask the OS for better pages, and
+the ones that don't, can't.
 
 **Threading has a ceiling here, and it is the memory system.** The compiled
 implementations reach 1.4–1.75× on 4 hardware threads — close to the 2 physical
@@ -327,10 +343,9 @@ of the answer are worth having, and [`asm/README.md`](asm/README.md) works
 through the disassembly line by line.
 
 It **wins on size** — 47 KB against C's 52 KB, and 27 KB against 48 KB stripped —
-**ties C on the table build**, and is now **faster than C on the search**
-(0.045 ms against 0.053), the fastest of the ten variants measured — though with
-the 16-bit mark ported everywhere, clang's C++ sits within measurement noise of
-it at 0.046.
+**ties C on the table build**, and is now **28% faster than the best compiled
+search** (0.038 ms against clang C++'s 0.046 and C's 0.053), the fastest of the
+ten variants measured.
 
 Getting there is the part worth reading, because the first answer was wrong.
 Disassembling both inner loops turned up three differences from GCC's output.
@@ -358,9 +373,25 @@ depth *was* the problem — not because it made a store non-invariant, as first
 claimed, but because it spent 22 bits that the cache could not afford. The fix
 was the one the analysis had described and dismissed as too expensive.
 
+A later round went looking for anything else the compilers knew, and found the
+opposite: the remaining win was one no compiler emits. `perf` attributed 47% of
+the process's dTLB misses to the mark load — the cache miss had been paid for
+twice, once for the data and once for the page walk to find it — and backing
+the array with 2 MB transparent huge pages (`mmap` aligned, `madvise`) took the
+search from 45 to 38 µs. Two tricks tried alongside it lost honestly: GCC's
+`prefetcht2` hint is 10% worse than `prefetcht0` here (the C source's
+conservative locality hint, faithfully compiled, is simply wrong for this
+machine), and a branchless rewrite of the visited check — `cmov` for the store,
+flag-arithmetic for the append — was 10% slower than the mispredicting branch
+it replaced, because after the TLB fix the loop is no longer stalled enough to
+hide four extra µops per edge.
+
 The honest summary is duller than either wrong version: hand-written assembly is
 competitive here and can win, and both times it looked beaten it was missing an
-optimization rather than losing to the compiler's code generation.
+optimization rather than losing to the compiler's code generation. What put it
+clearly ahead in the end was not better instructions than the compiler's — it
+was asking the operating system for a better address space, which is not the
+compiler's job.
 
 ## Correctness
 

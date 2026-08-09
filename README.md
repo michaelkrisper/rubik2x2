@@ -80,6 +80,13 @@ python3 tools/measure.py            # builds and benchmarks each, sequentially
 python3 tools/report.py             # renders the tables below
 ```
 
+> **Pending re-measurement.** The C, C++, Rust and Go rows below were taken
+> before those four gained the huge-page mapping described under *The pages*,
+> so they understate whatever it is worth in each. Only the assembly row
+> includes it. The numbers will be refreshed on an idle machine; the workflow
+> run under [Actions](../../actions/workflows/bench.yml) benchmarks the current
+> commit on standard hardware in the meantime.
+
 <!-- BENCHMARK:BEGIN -->
 
 | Language | Version | Table build | Per solve | Break-even | Threaded build |
@@ -246,14 +253,30 @@ cache miss. Asking the kernel for transparent huge pages (`madvise` with
 `MADV_HUGEPAGE` on a 2 MB-aligned mapping) turns the whole array into four TLB
 entries. That was worth another **16% in the assembly**, 45 → 38 µs, and is a
 memory-layout decision no compiler makes for you: it lives in the allocator,
-not the code. So far only the assembly does this; C, C++, Rust and Go could
-(`madvise` is reachable from all four), C# and JavaScript cannot without
-leaving the language. The assembly's `peak_mb` rounds up to 10.0 for it — four
-2 MB pages instead of 7.3 MB exactly.
+not the code. C, C++, Rust and Go now do the same — `madvise` is reachable from
+all four, via raw `mmap` in C and C++, `syscall.Mmap` in Go, and an aligned
+allocation plus a syscall through inline assembly in Rust. C# and JavaScript
+cannot without leaving the language: neither hands you the mapping its arrays
+live in. `peak_mb` rounds up to about 10.0 wherever it is in effect — four 2 MB
+pages instead of 7.3 MB exactly.
 
-Together these collapsed the compiled spread from 13× to under 5×, with the
-hand-written assembly now 28% ahead of the fastest compiled build (0.038 ms
-against clang C++'s 0.046). Almost everything that looked like a language gap
+*How* the mapping is obtained turns out to matter as much as asking for it.
+The advice has to reach a **fresh, untouched** anonymous mapping: THP populates
+huge pages on first fault, so anything that writes to the memory first — an
+allocator zeroing an over-aligned block, for instance — has already faulted in
+4 KB pages, and `khugepaged` is left to collapse them later, asynchronously
+and unreliably. An earlier attempt in C with `aligned_alloc` + `madvise` failed
+for exactly that reason and was reverted before the assembly port succeeded
+with a raw `mmap`. Rust's version is std-only and therefore still allocates
+through `alloc_zeroed`, which memsets over-aligned blocks — so it has the same
+shape as the attempt that failed, and its row should be read with that in mind
+until measured.
+
+Together these collapsed the compiled spread from 13× to under 5×. The
+assembly measured 28% ahead of the fastest compiled build (0.038 ms against
+clang C++'s 0.046) when it was the only one mapping huge pages; now that the
+other four do too, that particular margin is expected to close, and the tables
+above have not caught up yet. Almost everything that looked like a language gap
 was one wrong container, one missing hint, one over-wide word, and one page
 size.
 

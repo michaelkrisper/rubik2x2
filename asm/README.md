@@ -351,9 +351,12 @@ remove them.
 Worst case, assembly: `bfs` 0.47 ms and `ida` 10.4 ms, both on the antipodal
 position. All four entries report `optimal: true`.
 
-**The honest reading, in the end.** The search is now 28% ahead of the best
+**The honest reading, in the end.** The search measured 28% ahead of the best
 compiled build (0.038 ms against clang C++'s 0.046, C at 0.053) and the table
-builds are level. But almost none of that came from out-instructing the
+builds are level — though that margin was taken while the assembly was the only
+implementation mapping huge pages; C, C++, Rust and Go have since gained the
+same trick and the comparison is awaiting a re-measurement. But almost none of
+the margin came from out-instructing the
 compiler: per child the assembly and GCC differ by a couple of `mov`s, both
 converged on the same algorithmic choices (reciprocal multiply for the divide,
 rows padded so addressing is a shift, the pre-multiplied permutation table),

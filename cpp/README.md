@@ -199,7 +199,13 @@ while solving.
 Two caveats, stated rather than hidden: the counter sees heap allocations only,
 so IDA\*'s two pattern databases (5,769 bytes, held in automatic storage as
 `std::array`) do not appear in its figure; and allocator overhead is not
-counted, only the sizes the program asked for.
+counted, only the sizes the program asked for. The one exception is BFS's mark
+array, which now lives in an mmap'd block backed by 2 MB transparent huge
+pages — random access over 7.3 MB spans more ordinary pages than the TLB
+holds, so every cache miss also paid a page walk — and `operator new` never
+sees it. The search reports the mapped size by hand: 8,388,608 bytes, the
+array rounded up to whole huge pages, counted the same way in the assembly and
+C implementations.
 
 ## The optimization pass
 

@@ -75,7 +75,7 @@ the setup entirely and would make the table look free.
 
 **Memory reporting.** `peak_mb` is the memory each algorithm actually holds
 while solving, reported by the solver itself rather than sampled from the OS:
-the 7.3 MB mark array and its level buffers for `bfs`, the two pattern
+the mark array's 8.4 MB mapping and its level buffers for `bfs`, the two pattern
 databases for `ida`, the 3.67 MB byte array for `table`. Sampling RSS would not
 work here — glibc never returns the peak to the kernel, so a delta measured
 after the first algorithm would be zero for every later one.
@@ -103,12 +103,25 @@ edges — and the store that remains is a constant for the whole level.
 
 Against the two open-addressed sets and node pools this replaced: **0.212 →
 0.075 ms** average and **3.79 → 1.09 ms** on the antipodal position, best of
-five runs each. The cost is `peak_mb`, 1.4 → 8.9, which is the honest trade:
+five runs each. The cost is `peak_mb`, 1.4 → 9.96, which is the honest trade:
 the search now rents the whole state space instead of paying per node.
 
-Tried and reverted: 2 MB pages for the mark array (`aligned_alloc` +
-`madvise(MADV_HUGEPAGE)`). It measured slightly *worse* than 4 KB pages here and
-would have added a Linux-only path to an otherwise POSIX file.
+**The mark array is mapped, not `calloc`ed.** 7.3 MB of random access is ~1,800
+ordinary pages, more than any dTLB holds, so nearly every mark load also paid a
+page walk — `perf` on the assembly port attributed 47% of the process's dTLB
+misses to that one load. `alloc_huge` in `bfs.c` maps the array itself: a raw
+`mmap` one 2 MB page too large, trimmed to 2 MB alignment, then
+`madvise(MADV_HUGEPAGE)`, so the array is four TLB entries instead of ~1,800.
+It is the one Linux-specific corner of the program, and the rounding up to whole
+2 MB pages is why `peak_mb` reads 9.96 rather than 8.9 — the report counts the
+mapping, not the part of it the array uses. The level buffers stay `calloc`ed:
+they are read sequentially and were never TLB-bound.
+
+An earlier attempt at the same idea — `aligned_alloc` plus `madvise` — measured
+slightly *worse* than 4 KB pages and was reverted. What changed the verdict was
+the assembly port, where the same array mapped this way took the search from
+45 to 38 µs: the advice has to reach a fresh anonymous mapping *before* the
+first touch, which `aligned_alloc` cannot promise.
 
 ## The parallel table build
 

@@ -10,7 +10,10 @@
 //! frontiers meet, every shorter pairing has already been tried, so the first
 //! meeting point is a shortest solution — no heuristic, no tie-breaking.
 
+use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
 use std::cell::RefCell;
+use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
 
 use crate::coords::{self, N_STATES, SOLVED_INDEX};
 use crate::cube::{State, invert};
@@ -43,6 +46,103 @@ const GEN_POS: u16 = DEPTH_BITS + 1;
 const GEN_MASK: u16 = !(SIDE_BIT | DEPTH_MASK);
 const MAX_GEN: u16 = (u16::MAX >> GEN_POS) - 1;
 
+/// A 2 MB page holds 512 4 KB ones, and 2 MB is the x86-64 huge-page size.
+const HUGE_PAGE: usize = 2 * 1024 * 1024;
+
+/// The mark array's allocation size: 7.3 MB of `u16`s rounded up to a whole
+/// number of huge pages, 8,388,608 bytes.
+const MARKS_BYTES: usize = (N_STATES as usize * size_of::<u16>()).next_multiple_of(HUGE_PAGE);
+
+/// The mark array, placed so the kernel can back it with 2 MB pages.
+///
+/// The marks are random accesses over ~1,800 4 KB pages — more than the dTLB
+/// holds — so with ordinary pages nearly every cache miss also pays a page
+/// walk. Four 2 MB pages cover the whole array and never leave the TLB. The
+/// asm solver measured this at 47% of its dTLB misses, and huge pages took its
+/// search from 45 to 38 µs.
+///
+/// `madvise(MADV_HUGEPAGE)` only applies per whole huge page inside the
+/// mapping, so the allocation asks for 2 MB *alignment*; that also makes glibc
+/// satisfy it with its own mmap, which keeps the advice off unrelated heap
+/// memory. Behaves as a plain `[u16]` everywhere else, via `Deref`.
+struct HugeMarks {
+    ptr: NonNull<u16>,
+}
+
+impl HugeMarks {
+    /// `MARKS_BYTES` at huge-page alignment; both are non-zero constants, so
+    /// the layout cannot fail.
+    fn layout() -> Layout {
+        Layout::from_size_align(MARKS_BYTES, HUGE_PAGE).expect("constant layout")
+    }
+
+    fn new() -> Self {
+        // SAFETY: the layout has non-zero size. Zeroed is what `Scratch`
+        // relies on: generation 0 is never a live stamp.
+        let raw = unsafe { alloc_zeroed(Self::layout()) };
+        let Some(ptr) = NonNull::new(raw.cast::<u16>()) else {
+            handle_alloc_error(Self::layout());
+        };
+        advise_huge(raw, MARKS_BYTES);
+        Self { ptr }
+    }
+}
+
+impl Deref for HugeMarks {
+    type Target = [u16];
+
+    fn deref(&self) -> &[u16] {
+        // SAFETY: `ptr` is a live allocation of `MARKS_BYTES` zero-initialised
+        // bytes, which covers `N_STATES` `u16`s, and `u16` accepts any bytes.
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), N_STATES as usize) }
+    }
+}
+
+impl DerefMut for HugeMarks {
+    fn deref_mut(&mut self) -> &mut [u16] {
+        // SAFETY: as for `deref`, and `&mut self` makes the borrow exclusive.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), N_STATES as usize) }
+    }
+}
+
+impl Drop for HugeMarks {
+    fn drop(&mut self) {
+        // SAFETY: `ptr` came from `alloc_zeroed` with exactly this layout.
+        unsafe { dealloc(self.ptr.as_ptr().cast::<u8>(), Self::layout()) };
+    }
+}
+
+/// Ask the kernel to back `len` bytes at `addr` with huge pages.
+///
+/// std exposes no `madvise` and the crate takes no dependencies, so this is
+/// the raw syscall. Purely a hint: the kernel may collapse the pages later or
+/// not at all, and the mapping is valid either way, so the result is ignored —
+/// the same best-effort stance the asm solver takes.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn advise_huge(addr: *mut u8, len: usize) {
+    const SYS_MADVISE: usize = 28;
+    const MADV_HUGEPAGE: usize = 14;
+    // SAFETY: `syscall` with the x86-64 Linux ABI — number in rax, arguments
+    // in rdi/rsi/rdx, rcx and r11 clobbered by the instruction itself. madvise
+    // only tunes paging for memory this process already owns; it writes
+    // nothing and cannot invalidate the allocation.
+    unsafe {
+        core::arch::asm!(
+            "syscall",
+            inout("rax") SYS_MADVISE => _,
+            in("rdi") addr,
+            in("rsi") len,
+            in("rdx") MADV_HUGEPAGE,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+fn advise_huge(_addr: *mut u8, _len: usize) {}
+
 /// The working set of one solve, kept alive between solves.
 ///
 /// Allocating 7.3 MB per solve would cost far more than the search; instead a
@@ -50,14 +150,14 @@ const MAX_GEN: u16 = (u16::MAX >> GEN_POS) - 1;
 /// every 2,046 solves pays for a real clear. Thread-local rather than global,
 /// so concurrent callers get one each without a lock.
 struct Scratch {
-    marks: Vec<u16>,
+    marks: HugeMarks,
     generation: u16,
     buffers: [Vec<u32>; 3],
 }
 
 impl Scratch {
     fn new() -> Self {
-        Self { marks: vec![0; N_STATES as usize], generation: 0, buffers: Default::default() }
+        Self { marks: HugeMarks::new(), generation: 0, buffers: Default::default() }
     }
 
     /// Begin a solve; returns the tag this solve's marks carry.

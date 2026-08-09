@@ -141,11 +141,14 @@ func measure(f func()) float64 {
 // heap the algorithm still holds once its setup is done, plus everything one
 // solve of the worst case allocates. None of the three frees anything in the
 // middle of a solve, so the sum stands in fairly for the peak — and it charges
-// the table for the 3.7 MB it keeps, which is the honest comparison.
+// the table for the 3.7 MB it keeps, which is the honest comparison. The bfs
+// mark table lives in an mmap that MemStats cannot see, so any mapping bytes
+// acquired during the measurement are counted alongside the heap.
 func peakMB(setup func() solver.Solver, state cube.State) float64 {
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
+	mapped := solver.MappedBytes()
 
 	solve := setup()
 	runtime.GC()
@@ -157,7 +160,8 @@ func peakMB(setup func() solver.Solver, state cube.State) float64 {
 	runtime.ReadMemStats(&after)
 	runtime.KeepAlive(solve)
 
-	return float64(max(0, retained)+int64(after.TotalAlloc-allocated)) / 1e6
+	return float64(max(0, retained)+int64(after.TotalAlloc-allocated)+
+		solver.MappedBytes()-mapped) / 1e6
 }
 
 // measureBoth times two functions in alternation and returns the best round of

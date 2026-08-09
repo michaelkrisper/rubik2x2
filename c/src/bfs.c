@@ -1,7 +1,12 @@
+/* MADV_HUGEPAGE and madvise() are outside the _POSIX_C_SOURCE the build asks
+ * for; this is the one Linux-specific corner of the program. */
+#define _DEFAULT_SOURCE
+
 #include "bfs.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 
 /* Frontier entries of lookahead for the mark prefetch. Measured. */
 #define BFS_LOOKAHEAD 6
@@ -19,7 +24,13 @@
  * version kept two open-addressed sets and a node pool per solve; hashing and
  * probing a number that was already a perfect index dominated the run time.
  *
- * The array is 7.3 MB, far too big to clear per solve, so marks carry a
+ * The array is 7.3 MB and is mapped on 2 MB pages: that much random access is
+ * ~1,800 ordinary pages, more than any dTLB holds, so nearly every mark load
+ * also paid a page walk (perf: 47% of the process's dTLB misses were this
+ * loop). Rounded up to a multiple of 2 MB it is four TLB entries, and the
+ * rounded 8.4 MB is what the solver reports as its peak.
+ *
+ * It is far too big to clear per solve, so marks carry a
  * generation stamp: a solve bumps a counter and everything left by earlier
  * solves reads as unvisited. That is why the mark stores a *distance* and not a
  * parent state: a parent needs 22 bits and forces a wider mark, and the random
@@ -44,6 +55,31 @@ enum {
 #define MARK_SIDE_BIT ((uint16_t)1 << MARK_SIDE_POS)
 #define MARK_GEN_MASK ((uint16_t)~(MARK_SIDE_BIT | (uint16_t)MARK_DEPTH_MASK))
 #define MARK_MAX_GEN ((UINT16_MAX >> MARK_GEN_POS) - 1)
+
+#define HUGE_2M ((size_t)2 << 20)
+#define MARKS_BYTES                                                                                \
+    (((size_t)COORD_STATES * sizeof(uint16_t) + HUGE_2M - 1) & ~(HUGE_2M - 1))
+
+/* A 2 MB-aligned, zeroed, MADV_HUGEPAGE'd mapping of `bytes` (a multiple of
+ * 2 MB), or NULL. mmap gives no alignment promise, so map one spare huge page,
+ * trim the unaligned head and whatever tail is left, and only then advise the
+ * kernel -- with THP in madvise mode the huge pages arrive at first fault,
+ * exactly when the memset-free zeroed mapping is touched. */
+static void *alloc_huge(size_t bytes)
+{
+    unsigned char *const raw =
+        mmap(nullptr, bytes + HUGE_2M, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (raw == MAP_FAILED)
+        return nullptr;
+    unsigned char *const base =
+        (unsigned char *)(((uintptr_t)raw + HUGE_2M - 1) & ~(uintptr_t)(HUGE_2M - 1));
+    if (base != raw)
+        munmap(raw, (size_t)(base - raw));
+    /* head + tail together are the one spare page */
+    munmap(base + bytes, HUGE_2M - (size_t)(base - raw));
+    madvise(base, bytes, MADV_HUGEPAGE); /* best effort; the mapping works either way */
+    return base;
+}
 
 /* One breadth-first level: a plain array of states, reused across solves. Three
  * of them rotate -- the two frontiers and the level being built. */
@@ -80,7 +116,7 @@ static bool level_reserve(level_t *level, uint32_t wanted)
 static bool bfs_stamp(uint32_t *generation)
 {
     if (!bfs_marks) {
-        bfs_marks = calloc(COORD_STATES, sizeof *bfs_marks);
+        bfs_marks = alloc_huge(MARKS_BYTES);
         if (!bfs_marks)
             return false;
     }
@@ -95,7 +131,8 @@ static bool bfs_stamp(uint32_t *generation)
 
 void bfs_release(void)
 {
-    free(bfs_marks);
+    if (bfs_marks)
+        munmap(bfs_marks, MARKS_BYTES);
     bfs_marks = nullptr;
     bfs_generation = 0;
     for (int i = 0; i < 3; i++) {
@@ -106,7 +143,7 @@ void bfs_release(void)
 
 static size_t bfs_bytes(void)
 {
-    size_t bytes = (size_t)COORD_STATES * sizeof *bfs_marks;
+    size_t bytes = MARKS_BYTES;
     for (int i = 0; i < 3; i++)
         bytes += (size_t)bfs_level[i].capacity * sizeof *bfs_level[i].at;
     return bytes;
@@ -189,13 +226,16 @@ solve_status_t bfs_solve_index(const coord_tables_t *tables, uint32_t start, sol
 
         for (uint32_t i = 0; i < level->count && by == COORD_MOVES; i++) {
             /* Name the mark words this loop wants a few entries from now: one
-             * random word of a 7.3 MB array per edge, against 3 MiB of cache. */
+             * random word of a 7.3 MB array per edge, against 3 MiB of cache.
+             * Locality 3, not the conservative 1: GCC turns 1 into prefetcht2,
+             * which the assembly port's A/B measured 10% worse here than the
+             * prefetcht0 locality 3 emits. */
             if (i + BFS_LOOKAHEAD < level->count) {
                 const uint32_t ahead = level->at[i + BFS_LOOKAHEAD];
                 const uint32_t *const p = tables->perm_by_q[ahead / COORD_ORIENTATIONS];
                 const uint16_t *const o = tables->orient_by_r[ahead % COORD_ORIENTATIONS];
                 for (int m = 0; m < COORD_MOVES; m++)
-                    __builtin_prefetch(&marks[p[m] + o[m]], 1, 1);
+                    __builtin_prefetch(&marks[p[m] + o[m]], 1, 3);
             }
             const uint32_t node = level->at[i];
             const uint32_t *const perm = tables->perm_by_q[node / COORD_ORIENTATIONS];

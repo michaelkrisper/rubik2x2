@@ -7,6 +7,14 @@
 #include <format>
 #include <vector>
 
+#if defined(__linux__)
+#include <sys/mman.h>
+
+#include <new>
+
+#include "rubik/memtrack.hpp"
+#endif
+
 #include "rubik/coords.hpp"
 #include "rubik/prefetch.hpp"
 
@@ -40,6 +48,54 @@ constexpr std::uint32_t max_generation = (0xFFFFu >> generation_position) - 1;
 
 static_assert(max_depth <= depth_mask, "a frontier depth no longer fits the mark");
 
+#if defined(__linux__)
+/// Backing store for the mark array: a 2 MB-aligned anonymous mapping asking
+/// the kernel for transparent huge pages.
+///
+/// The array is 7.3 MB of *random* access -- about 1,800 ordinary 4 KB pages,
+/// more than the TLB holds -- so nearly every cache miss also paid a page
+/// walk. Backed by 2 MB pages the whole array is four TLB entries. mmap gives
+/// no alignment promise, so the mapping is over-sized by one huge page, the
+/// unaligned head and whatever tail is left are unmapped, and only then is the
+/// kernel advised: with THP in `madvise` mode the huge pages arrive at first
+/// fault, exactly when the zeroed mapping is touched. `operator new` never
+/// sees this block, so its size is reported to `memtrack` by hand.
+class MarkStore {
+  public:
+    MarkStore() {
+        void* raw = ::mmap(nullptr, mapped_bytes + huge_page, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (raw == MAP_FAILED) {
+            throw std::bad_alloc{};
+        }
+        const auto base = reinterpret_cast<std::uintptr_t>(raw);
+        const std::uintptr_t aligned = (base + huge_page - 1) & ~(huge_page - 1);
+        const std::size_t head = aligned - base;
+        if (head != 0) {
+            ::munmap(raw, head);
+        }
+        ::munmap(reinterpret_cast<void*>(aligned + mapped_bytes), huge_page - head);
+        ::madvise(reinterpret_cast<void*>(aligned), mapped_bytes, MADV_HUGEPAGE);  // best effort
+        marks_ = reinterpret_cast<std::uint16_t*>(aligned);
+        memtrack::note_mapped(mapped_bytes);
+    }
+    ~MarkStore() {
+        memtrack::forget_mapped(mapped_bytes);
+        ::munmap(marks_, mapped_bytes);
+    }
+    MarkStore(const MarkStore&) = delete;
+    MarkStore& operator=(const MarkStore&) = delete;
+
+    [[nodiscard]] std::uint16_t* data() { return marks_; }
+
+  private:
+    static constexpr std::size_t huge_page = std::size_t{2} << 20;
+    static constexpr std::size_t mapped_bytes =
+        (coords::state_count * sizeof(std::uint16_t) + huge_page - 1) & ~(huge_page - 1);
+    std::uint16_t* marks_;
+};
+#endif
+
 /// The working set of one solve, kept alive between solves.
 ///
 /// Allocating and zeroing 7.3 MB per solve would cost far more than the search
@@ -52,7 +108,7 @@ class Scratch {
     /// Begin a solve; returns the tag this solve's marks carry.
     [[nodiscard]] std::uint16_t stamp() {
         if (generation_ >= max_generation) {
-            std::ranges::fill(marks_, std::uint16_t{0});
+            std::fill_n(marks_.data(), coords::state_count, std::uint16_t{0});
             generation_ = 0;
         }
         ++generation_;
@@ -63,7 +119,13 @@ class Scratch {
     [[nodiscard]] std::vector<std::uint32_t>& buffer(std::size_t which) { return buffers_[which]; }
 
   private:
+#if defined(__linux__)
+    MarkStore marks_;
+#else
+    // Anywhere the huge-page mapping above is not portable, a plain zeroed
+    // vector: correct, just paying a page walk per TLB miss.
     std::vector<std::uint16_t> marks_ = std::vector<std::uint16_t>(coords::state_count, 0u);
+#endif
     std::array<std::vector<std::uint32_t>, 3> buffers_{};
     std::uint32_t generation_ = 0;
 };

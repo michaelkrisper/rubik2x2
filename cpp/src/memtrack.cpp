@@ -84,6 +84,10 @@ std::size_t live_bytes() {
     return current > base ? current - base : 0;
 }
 
+void note_mapped(std::size_t bytes) { note_allocation(bytes); }
+
+void forget_mapped(std::size_t bytes) { live.fetch_sub(bytes, std::memory_order_relaxed); }
+
 }  // namespace rubik::memtrack
 
 void* operator new(std::size_t size) { return allocate_or_throw(size, __STDCPP_DEFAULT_NEW_ALIGNMENT__); }

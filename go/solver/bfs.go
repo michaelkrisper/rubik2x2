@@ -3,6 +3,7 @@ package solver
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/michaelkrisper/rubik2x2/go/coords"
 	"github.com/michaelkrisper/rubik2x2/go/cube"
@@ -51,8 +52,16 @@ type scratch struct {
 }
 
 var scratchPool = sync.Pool{
-	New: func() any { return &scratch{marks: make([]uint16, coords.NStates)} },
+	New: func() any { return &scratch{marks: newMarks(coords.NStates)} },
 }
+
+// mappedBytes totals what the huge-page mark mappings hold. mmap'd memory is
+// invisible to runtime.MemStats, so the benchmark reads it here instead.
+var mappedBytes atomic.Int64
+
+// MappedBytes reports the bytes held by mmap-backed mark tables, zero on
+// platforms where newMarks falls back to the heap.
+func MappedBytes() int64 { return mappedBytes.Load() }
 
 // stamp begins a solve and returns the tag its marks carry. Clearing happens
 // only when the counter wraps.

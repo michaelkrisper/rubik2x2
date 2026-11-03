@@ -16,6 +16,7 @@ comparison tables in the README. Standard library only.
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -191,6 +192,15 @@ def _tool_version(tool: str) -> str | None:
     return first.split("(")[0].strip() or None
 
 
+def _clang_build(build: str) -> str:
+    """Relabel a GCC build string for a clang build, leaving "clang++" alone.
+
+    A plain ``replace("g++", "clang++")`` would turn an already-correct
+    "clang++" into "clanclang++".
+    """
+    return re.sub(r"\bg\+\+", "clang++", build.replace("GCC", "clang"))
+
+
 def _run(command: list[str], cwd: Path, capture: bool = False) -> subprocess.CompletedProcess:
     return subprocess.run(command, cwd=cwd, text=True, capture_output=capture, check=False)
 
@@ -271,7 +281,7 @@ def measure(target: Target, skip_build: bool) -> dict | None:
         version = _tool_version("clang" if target.name.startswith("c-") else "clang++")
         report["language"] = f"{report.get('language', target.name)} (clang)"
         report["version"] = version or "clang"
-        report["build"] = report.get("build", "").replace("GCC", "clang").replace("g++", "clang++")
+        report["build"] = _clang_build(report.get("build", ""))
     report |= {
         "build_ms": build_ms,
         "startup_ms": startup_ms,

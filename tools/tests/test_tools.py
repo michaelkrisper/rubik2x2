@@ -10,7 +10,10 @@ import report
 
 
 def _report(**algorithms: dict) -> dict:
-    return {"language": "X", "algorithms": [{"name": n, **v} for n, v in algorithms.items()]}
+    return {
+        "language": "X",
+        "algorithms": [{"name": n, **v} for n, v in algorithms.items()],
+    }
 
 
 def test_clang_build_relabels_gcc_strings():
@@ -36,14 +39,20 @@ def test_entry_missing_algorithm_is_empty():
 
 
 def test_break_even():
-    r = _report(bfs={"setup_ms": 0, "avg_ms": 0.5}, table={"setup_ms": 100, "avg_ms": 0.1})
+    r = _report(
+        bfs={"setup_ms": 0, "avg_ms": 0.5}, table={"setup_ms": 100, "avg_ms": 0.1}
+    )
     assert report.break_even(r) == "251"
-    slower = _report(bfs={"setup_ms": 0, "avg_ms": 0.1}, table={"setup_ms": 100, "avg_ms": 0.5})
+    slower = _report(
+        bfs={"setup_ms": 0, "avg_ms": 0.1}, table={"setup_ms": 100, "avg_ms": 0.5}
+    )
     assert report.break_even(slower) == "—"
 
 
 def test_speedup():
-    r = _report(table={"setup_ms": 160}, **{"table-par": {"setup_ms": 100, "workers": 4}})
+    r = _report(
+        table={"setup_ms": 160}, **{"table-par": {"setup_ms": 100, "workers": 4}}
+    )
     assert report.speedup(r) == "1.60× (4 threads)"
     assert report.speedup(_report(table={"setup_ms": 160})) == "—"
 

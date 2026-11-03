@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: asm } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make
       - run: make test
       - run: ./rubik2x2 table
@@ -36,7 +36,7 @@ jobs:
     name: c (${{ matrix.compiler }})
     defaults: { run: { working-directory: c } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.install }}
       - run: make CC=${{ matrix.compiler }}
       - run: make CC=${{ matrix.compiler }} test
@@ -62,7 +62,7 @@ jobs:
     name: cpp (${{ matrix.compiler }})
     defaults: { run: { working-directory: cpp } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.install }}
       - run: make CXX=${{ matrix.compiler }} STDLIB=${{ matrix.stdlib }}
       - run: make CXX=${{ matrix.compiler }} STDLIB=${{ matrix.stdlib }} test
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: rust } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -88,9 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: go } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: "1.24" }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go/go.mod }
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
@@ -102,8 +102,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: csharp } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with: { dotnet-version: "10.0.x" }
       - run: dotnet build -c Release
       - run: dotnet test -c Release
@@ -115,8 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: javascript } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: "24" }
       - run: node --test
       - run: node src/cli.js table
@@ -132,8 +132,8 @@ jobs:
         extras: ["", "numpy"]
     name: python (${{ matrix.extras == '' && 'no numpy' || 'with numpy' }})
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "3.14" }
       - run: python -m pip install --upgrade pip && pip install pytest ruff ${{ matrix.extras }}
       - run: ruff check .
@@ -141,9 +141,21 @@ jobs:
       - run: pytest -m slow
       - run: python -m pyrubik table
 
+  tools:
+    # The benchmark harness that renders the README tables.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.14" }
+      - run: python -m pip install --upgrade pip && pip install pytest ruff
+      - run: ruff check tools
+      - run: ruff format --check tools/tests
+      - run: pytest -q tools/tests
+
   agree:
     # The point of eight implementations: they must give the same answers.
-    needs: [asm, c, cpp, rust, go, csharp, javascript, python]
+    needs: [asm, c, cpp, rust, go, csharp, javascript, python, tools]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All implementations built, tested and reproduced OEIS A079762."

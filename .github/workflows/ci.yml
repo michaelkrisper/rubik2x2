@@ -117,7 +117,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: "24" }
+        with: { node-version: "26" }
       - run: node --test
       - run: node src/cli.js table
       - run: node src/cli.js bench --json --scrambles ../bench/scrambles.txt
@@ -134,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
-        with: { python-version: "3.14" }
+        with: { python-version: "3.15" }
       - run: python -m pip install --upgrade pip && pip install pytest ruff ${{ matrix.extras }}
       - run: ruff check .
       - run: pytest
@@ -147,7 +147,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
-        with: { python-version: "3.14" }
+        with: { python-version: "3.15" }
       - run: python -m pip install --upgrade pip && pip install pytest ruff
       - run: ruff check tools
       - run: ruff format --check tools/tests

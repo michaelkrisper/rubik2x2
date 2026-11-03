@@ -1,5 +1,9 @@
 # rubik2x2
 
+[![ci](https://github.com/michaelkrisper/rubik2x2/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/rubik2x2/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Languages](https://img.shields.io/badge/implementations-8-informational)
+
 **Optimal solvers for the 2x2x2 Rubik's Cube (Pocket Cube, Mini Cube)** — the
 same three algorithms implemented once per language, so the algorithmic and the
 language-level differences can be told apart.
@@ -15,10 +19,55 @@ Every solver here returns a *shortest* solution, never merely a working one.
 | [`go/`](go/) | Go 1.26 | goroutines |
 | [`javascript/`](javascript/) | Node 24 | `worker_threads` |
 | [`python/`](python/) | Python 3.14 | reference implementation, numpy |
+| [`rust/`](rust/) | Rust 2024 (MSRV 1.85) | std only, `std::thread::scope` |
 
 Each is written idiomatically for its language rather than transliterated, and
 all of them satisfy the same contract in [SPEC.md](SPEC.md) — same move tables,
 same encoding, same three algorithms, same benchmark inputs and output format.
+
+## Usage
+
+Every implementation is a self-contained project with the same command line:
+
+```sh
+rubik2x2 solve <state> [--algorithm bfs|ida|table]   # print a shortest solution
+rubik2x2 scramble [-n N] [--seed S]                  # print a scrambled state
+rubik2x2 table [--workers N]                         # build the distance table, print the histogram
+rubik2x2 bench [--json] [--scrambles FILE] [-n N]    # benchmark the three algorithms
+```
+
+A state is 24 colour letters (`rwbypg`), face by face in the order up, front,
+down, back, left, right, each face read row-major. For example, with the Python
+reference implementation:
+
+```sh
+$ cd python && python -m pyrubik solve wppryygrygrwgprbbbwpbwyg
+tlFllFtLTLLTLL
+```
+
+The full contract — encoding, move notation, output formats — is in
+[SPEC.md](SPEC.md); each directory's README covers its own build and design.
+
+## Development
+
+Run from the implementation's directory. These are exactly the commands CI runs.
+
+| dir | build | test | lint |
+| --- | --- | --- | --- |
+| `asm` | `make` | `make test` | — |
+| `c` | `make` (gcc 14+ or clang) | `make test` | `-Wall -Wextra -Werror` |
+| `cpp` | `make` (g++ 14+) | `make test` | `-Wall -Wextra -Werror` |
+| `csharp` | `dotnet publish -c Release -o publish` | `dotnet test -c Release` | warnings as errors |
+| `go` | `go build -o rubik2x2 ./cmd/rubik2x2` | `go test ./...` | `gofmt -l .`, `go vet ./...` |
+| `javascript` | — | `node --test` | — |
+| `python` | — | `pytest`, then `pytest -m slow` | `ruff check .` |
+| `rust` | `cargo build --release` | `cargo test` | `cargo fmt --check`, `cargo clippy --release --all-targets -- -D warnings` |
+
+The C and C++ makefiles default to `ARCH=-march=native`; pass
+`ARCH=-march=x86-64-v2` for a portable build. Every CI job ends by running
+`table` and checking the histogram against OEIS A079762 (see
+[Correctness](#correctness)). The benchmark tooling in `tools/` has its own
+tests: `pytest tools/tests`.
 
 ---
 

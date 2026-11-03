@@ -1,0 +1,2 @@
+# The x86-64 include file is GNU as, not Pawn.
+*.inc linguist-language=Assembly

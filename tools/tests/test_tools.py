@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import measure  # noqa: E402
-import report  # noqa: E402
+import measure
+import report
 
 
 def _report(**algorithms: dict) -> dict:

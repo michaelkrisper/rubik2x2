@@ -65,7 +65,7 @@ jobs:
             python3 tools/report.py
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-results
           path: bench/results/

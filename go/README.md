@@ -4,7 +4,7 @@ An optimal solver for the 2x2x2 Rubik's Cube (pocket cube), in three algorithms.
 See [`../SPEC.md`](../SPEC.md) for the contract every language implementation in
 this repository follows.
 
-Go 1.26, standard library only.
+Go 1.27, standard library only.
 
 ## Build, run, test
 

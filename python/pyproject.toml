@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.33"]
 build-backend = "hatchling.build"
 
 [project]
@@ -24,7 +24,7 @@ dependencies = []
 
 [project.optional-dependencies]
 # Only speeds up building the distance table; results are identical without it.
-fast = ["numpy>=1.26"]
+fast = ["numpy>=2.5"]
 
 [project.urls]
 Homepage = "https://github.com/michaelkrisper/rubik2x2"
@@ -34,7 +34,7 @@ Issues = "https://github.com/michaelkrisper/rubik2x2/issues"
 pyrubik = "pyrubik.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "numpy>=1.26"]
+dev = ["pytest>=9.2", "ruff>=0.17", "numpy>=2.5"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["pyrubik"]

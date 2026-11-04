@@ -16,9 +16,9 @@ Every solver here returns a *shortest* solution, never merely a working one.
 | [`c/`](c/) | C23 | gcc, pthreads |
 | [`cpp/`](cpp/) | C++23 | g++, `std::jthread` |
 | [`csharp/`](csharp/) | .NET 10 | threads around a `Barrier` |
-| [`go/`](go/) | Go 1.26 | goroutines |
-| [`javascript/`](javascript/) | Node 24 | `worker_threads` |
-| [`python/`](python/) | Python 3.14 | reference implementation, numpy |
+| [`go/`](go/) | Go 1.27 | goroutines |
+| [`javascript/`](javascript/) | Node 24+ | `worker_threads` |
+| [`python/`](python/) | Python 3.14+ | reference implementation, numpy |
 | [`rust/`](rust/) | Rust 2024 (MSRV 1.85) | std only, `std::thread::scope` |
 
 Each is written idiomatically for its language rather than transliterated, and

@@ -17,7 +17,7 @@ csharp/
     CubeRenderer.cs        the unfolded net, for terminals
     Benchmarking/          the measurement protocol and its JSON shape
   src/Rubik2x2.Cli/      the `rubik2x2` executable
-  tests/Rubik2x2.Tests/  xunit
+  tests/Rubik2x2.Tests/  xunit v3
 ```
 
 The three layers are kept apart on purpose. `CubeState` is 24 bytes a human can
@@ -27,8 +27,8 @@ knows about the second, and nothing in either knows about the third.
 
 ## Requirements
 
-.NET SDK 10 or later. No NuGet packages beyond the framework and xunit, which is
-what `dotnet new xunit` gives you.
+.NET SDK 10 or later. No NuGet packages beyond the framework and xunit v3, which
+runs on Microsoft.Testing.Platform (opted into by `global.json`).
 
 ## Build, run, test
 

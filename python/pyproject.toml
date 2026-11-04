@@ -34,7 +34,7 @@ Issues = "https://github.com/michaelkrisper/rubik2x2/issues"
 pyrubik = "pyrubik.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=9.2", "ruff>=0.17", "numpy>=2.5"]
+dev = ["pytest>=9.2", "ruff>=0.17.3", "numpy>=2.5"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["pyrubik"]

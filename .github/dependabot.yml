@@ -8,9 +8,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Majors included: separate PRs on the same workflow file block each other's auto-merge.
     groups:
-      minor-and-patch:
-        update-types: [minor, patch]
+      actions:
+        patterns: ['*']
   - package-ecosystem: nuget
     directory: /csharp
     schedule:

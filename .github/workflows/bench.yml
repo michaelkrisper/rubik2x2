@@ -27,9 +27,9 @@ jobs:
           ln -s "$(command -v g++-14)" "$HOME/bin/g++"
           echo "$HOME/bin" >> "$GITHUB_PATH"
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version: "stable" }
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with: { dotnet-version: "10.0.x" }
       - uses: actions/setup-node@v7
         with: { node-version: "24" }

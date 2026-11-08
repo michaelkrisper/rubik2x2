@@ -1,6 +1,7 @@
 # rubik2x2
 
 [![ci](https://github.com/michaelkrisper/rubik2x2/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelkrisper/rubik2x2/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/v/tag/michaelkrisper/rubik2x2?sort=semver&label=version)](https://github.com/michaelkrisper/rubik2x2/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Languages](https://img.shields.io/badge/implementations-8-informational)
 
@@ -68,6 +69,10 @@ The C and C++ makefiles default to `ARCH=-march=native`; pass
 `table` and checking the histogram against OEIS A079762 (see
 [Correctness](#correctness)). The benchmark tooling in `tools/` has its own
 tests: `pytest tools/tests`.
+
+CI tags every merge to `main` with the next patch version; bundled releases
+with release notes come from the Release workflow. Changes go through issues
+and pull requests, see [CONTRIBUTING](CONTRIBUTING.md).
 
 ---
 

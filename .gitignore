@@ -37,3 +37,6 @@ cpp/build/
 go/rubik2x2
 node_modules/
 bench/results/
+
+# Machine-specific Claude Code notes
+CLAUDE.local.md
